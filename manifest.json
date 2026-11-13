@@ -1,0 +1,10 @@
+{
+  "id": "aiditing",
+  "name": "爱谛听",
+  "version": "0.1.0",
+  "minAppVersion": "1.4.0",
+  "description": "Turn audio and video files in your vault into timestamped, chaptered Markdown notes. Only creates new notes; never modifies existing ones.",
+  "author": "AiDiTing",
+  "authorUrl": "https://aiditing.cn",
+  "isDesktopOnly": true
+}
