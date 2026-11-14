@@ -11,7 +11,10 @@ import type { Transport } from "./transport";
  * 也能跑在 Node 的 fetch 上——冒烟脚本和单测才可能覆盖到真实的接口行为。
  */
 
-export type TaskStatus = "queued" | "processing" | "completed" | "failed" | string;
+// 已知状态用于补全和类型收窄，服务端将来新增状态也要能兜住。
+// 写成 `"queued" | ... | string` 会被目录静态检查判为「字面量被 string 覆盖」
+// （连着报 4 条 warning），故用 `(string & {})` 保留字面量又不封死类型。
+export type TaskStatus = "queued" | "processing" | "completed" | "failed" | (string & {});
 
 export interface TaskView {
   taskId: string;
@@ -201,9 +204,15 @@ function describe(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-// 用全局 setTimeout 而不是 window.setTimeout：同一份代码要在 Obsidian 和 Node（单测/冒烟）里都能跑
+// 目录静态检查要求用 window.setTimeout：插件在弹窗（popout window）里运行时，
+// 裸 setTimeout 可能落到主窗口的计时器上。单测和冒烟脚本跑在 Node 里没有 window，
+// 那里退回全局的（同一份代码要两边都能跑）。
 export function sleep(ms: number): Promise<void> {
   return new Promise<void>((resolve) => {
-    setTimeout(() => resolve(), ms);
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => resolve(), ms);
+    } else {
+      setTimeout(() => resolve(), ms);
+    }
   });
 }

@@ -8,6 +8,19 @@
 
 对应页面：<https://aiditing.cn/connect/obsidian>
 
+## English
+
+AiDiTing turns audio and video files inside your vault into timestamped, chaptered Markdown notes.
+
+- Pick an audio or video file in your vault (file menu, or command palette) and the plugin writes **one new note** into your target folder (default `00-Inbox`).
+- The note contains frontmatter (source file, duration, task ID), a summary, chapter headings, the transcript with timestamps, and a plain-text body without timestamps.
+- It **only creates new notes**. It never edits, moves, or deletes existing notes. Name collisions get a numeric suffix, for example `x.md` becomes `x-2.md`.
+- Desktop only (`isDesktopOnly: true`). It requires an API key created at <https://aiditing.cn/workspace>; the free tier is 30 minutes per month.
+- The file you select is uploaded to `api.diting.cc` for transcription. Without an API key nothing is uploaded at all. Uploaded data is not used for model training and is not shared with third parties. See the privacy section below.
+- Not supported: online video links, mobile, and updating an existing note in place.
+
+Processing time depends on file length, network conditions, and the current queue. There is no fixed time promise — the interface only reports the current status.
+
 开源协议：MIT（见 [LICENSE](./LICENSE)）。本仓库根目录的 `main.js` 是构建产物，**构建时不压缩、不混淆**，可直接阅读；
 完整源码在 `src/`、单测在 `tests/`，配合 `package.json`、`package-lock.json`、`esbuild.config.mjs`、`tsconfig.json` 可在本地复现构建（`npm install && npm run build`）。
 

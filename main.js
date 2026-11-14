@@ -180,7 +180,11 @@ function describe(err) {
 }
 function sleep(ms) {
   return new Promise((resolve) => {
-    setTimeout(() => resolve(), ms);
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => resolve(), ms);
+    } else {
+      setTimeout(() => resolve(), ms);
+    }
   });
 }
 
