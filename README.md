@@ -1,4 +1,4 @@
-# 爱谛听 Obsidian 插件
+# AiDiTing（爱谛听）Obsidian 插件
 
 > Turn audio and video files in your vault into timestamped, chaptered Markdown notes.
 > Only creates new notes; never modifies existing ones.

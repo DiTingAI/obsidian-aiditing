@@ -101,12 +101,43 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 say "同步产物到 ${REPO}"
-if ! git clone --quiet --depth 1 "https://x-access-token:${TOKEN}@github.com/${REPO}.git" "$WORK/repo" 2>/dev/null; then
-  say "发布仓库是空的，初始化"
-  mkdir -p "$WORK/repo"
-  git -C "$WORK/repo" init -q
-  git -C "$WORK/repo" remote add origin "https://x-access-token:${TOKEN}@github.com/${REPO}.git"
-  git -C "$WORK/repo" checkout -q -b main
+
+# 「仓库是否为空」用 API 问，不要拿 clone 失败来猜。
+# clone 失败多半是网络抖动或 token 权限，误判成空仓库再 init，push 会被拒
+# （fetch first）；更糟的是若有人加了 --force，就把已有历史冲掉了。
+REMOTE_EMPTY=$(curl -s -H "Authorization: token ${TOKEN}" "${API}/commits?per_page=1" \
+  | python3 -c "
+import json,sys
+try:
+    print('1' if json.load(sys.stdin) == [] else '0')
+except Exception:
+    print('0')
+" 2>/dev/null || echo 0)
+
+CLONED=0
+for attempt in 1 2 3; do
+  if git clone --quiet --depth 1 "https://x-access-token:${TOKEN}@github.com/${REPO}.git" "$WORK/repo" 2>"$WORK/clone.err"; then
+    CLONED=1
+    break
+  fi
+  rm -rf "$WORK/repo"
+  if [ "$attempt" -lt 3 ]; then
+    say "clone 失败（第 ${attempt} 次），2 秒后重试"
+    sleep 2
+  fi
+done
+
+if [ "$CLONED" -eq 0 ]; then
+  if [ "$REMOTE_EMPTY" = "1" ]; then
+    say "发布仓库是空的，初始化"
+    mkdir -p "$WORK/repo"
+    git -C "$WORK/repo" init -q
+    git -C "$WORK/repo" remote add origin "https://x-access-token:${TOKEN}@github.com/${REPO}.git"
+    git -C "$WORK/repo" checkout -q -b main
+  else
+    sed -e "s|${TOKEN}|***|g" "$WORK/clone.err" | head -5 >&2
+    die "clone ${REPO} 失败，但远端已有提交。先排查网络或 token 权限，不要当空仓库覆盖"
+  fi
 fi
 
 # 构建产物：Release 附件从这里传，仓库根也留一份（审核打开仓库就能读，不用去翻 Release）
