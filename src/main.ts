@@ -233,7 +233,7 @@ class PathConfirmModal extends Modal {
       text.setValue(this.value).onChange((v) => {
         this.value = v.trim();
       });
-      text.inputEl.style.width = "100%";
+      text.inputEl.addClass("aiditing-path-input");
     });
 
     new Setting(this.contentEl)

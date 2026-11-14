@@ -8,3 +8,10 @@
 .aiditing-notice {
   word-break: break-all;
 }
+
+/* 路径确认框里的输入框占满一行。
+ * 不用 `inputEl.style.width = "100%"` 直接写内联样式——社区目录的静态检查
+ * （obsidianmd/no-static-styles-assignment）会把它当 Error 拦下，要求走 CSS 类。 */
+.aiditing-path-input {
+  width: 100%;
+}

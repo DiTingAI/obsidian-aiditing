@@ -1,7 +1,7 @@
 /*
 爱谛听 Obsidian 插件 —— 构建产物，请勿直接编辑。
 协议：MIT（见仓库根 LICENSE）  说明：https://aiditing.cn/connect/obsidian
-产物未压缩、未混淆，可直接阅读；源码随产品仓库维护，需要审阅可联系我们。
+产物未压缩、未混淆，可直接阅读；源码与本产物同在仓库内，见 src/。
 */
 "use strict";
 var __defProp = Object.defineProperty;
@@ -580,7 +580,7 @@ var PathConfirmModal = class extends import_obsidian3.Modal {
       text.setValue(this.value).onChange((v) => {
         this.value = v.trim();
       });
-      text.inputEl.style.width = "100%";
+      text.inputEl.addClass("aiditing-path-input");
     });
     new import_obsidian3.Setting(this.contentEl).addButton(
       (btn) => btn.setButtonText("\u5199\u5165").setCta().onClick(() => {
