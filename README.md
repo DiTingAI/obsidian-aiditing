@@ -101,11 +101,13 @@ AIDITING_KEY=sk-diting-xxx npx tsx scripts/smoke.ts /path/to/lecture.mp3 --out /
 
 ## 安装
 
-### 从社区插件市场（已上架后）
+### 从社区插件市场（推荐）
 
-设置 → 第三方插件 → 浏览 → 搜索「爱谛听」→ 安装并启用。
+设置 → 第三方插件 → 浏览 → 搜索 **AiDiTing** → 安装并启用。
 
-### 手动安装
+目录里的名字是英文 `AiDiTing`，不是中文「爱谛听」（Obsidian 的 manifest 命名规范只接受 Basic Latin 字符），所以搜中文搜不到。目录清单每小时同步一次，刚上架时可能还搜不到，重启 Obsidian 或稍后再试。
+
+### 手动安装（备选）
 
 ```bash
 # 1. 把三个文件放进 Vault 的插件目录
@@ -116,7 +118,7 @@ AIDITING_KEY=sk-diting-xxx npx tsx scripts/smoke.ts /path/to/lecture.mp3 --out /
 ```
 
 2. Obsidian → 设置 → 第三方插件 → 关闭「安全模式」
-3. 在「已安装插件」里找到「爱谛听」，启用
+3. 在「已安装插件」里找到「AiDiTing」，启用
 4. 打开插件设置 → 点「去创建」打开工作台，登录后创建 API Key，复制回来粘贴（免费额度每月 30 分钟）
 
 ## 配置项
