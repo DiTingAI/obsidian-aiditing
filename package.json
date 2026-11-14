@@ -1,0 +1,22 @@
+{
+  "name": "aiditing-obsidian",
+  "version": "0.1.0",
+  "private": true,
+  "description": "爱谛听 Obsidian 插件：把 Vault 里的音视频整理成 Markdown 笔记",
+  "type": "module",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc --noEmit && node esbuild.config.mjs production",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "smoke": "tsx scripts/smoke.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "builtin-modules": "^4.0.0",
+    "esbuild": "^0.25.0",
+    "obsidian": "^1.7.2",
+    "tsx": "^4.23.15",
+    "typescript": "^5"
+  }
+}

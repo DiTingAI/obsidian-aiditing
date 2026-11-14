@@ -8,7 +8,8 @@
 
 对应页面：<https://aiditing.cn/connect/obsidian>
 
-开源协议：MIT（见 [LICENSE](./LICENSE)）。本仓库根目录的 `main.js` 是构建产物，**构建时不压缩、不混淆**，可直接阅读；源码随产品私有仓库维护，需要审阅源码可以联系我们。
+开源协议：MIT（见 [LICENSE](./LICENSE)）。本仓库根目录的 `main.js` 是构建产物，**构建时不压缩、不混淆**，可直接阅读；
+完整源码在 `src/`、单测在 `tests/`，配合 `package.json`、`package-lock.json`、`esbuild.config.mjs`、`tsconfig.json` 可在本地复现构建（`npm install && npm run build`）。
 
 ## 现在能做什么
 
@@ -49,6 +50,13 @@ GITHUB_TOKEN=ghp_xxx ./scripts/release-obsidian.sh          # 发布
 脚本会拦下四种常见翻车：`manifest.version` 与 Release tag 不一致、`versions.json` 漏收录新版本、
 `main.js` 把依赖误打进来（>3MB）、产物里混入 `localhost` 地址。另外它会先探测发布仓库是否 **Public**——
 Private 仓库的 Release 资产客户端下载不到，用户装不上。
+
+脚本除了产物，还会把 `src/`、`tests/`、`scripts/` 和构建配置一起同步过去——市场审核要能在仓库里读到源码，
+只给 Release 附件是不够的。发布仓库因此有自己的一份 `.gitignore`（只挡 `node_modules/`、`dist/`），
+不能沿用项目根目录那份，否则 `main.js` 会被忽略、进不了仓库。
+
+上架提交入口是 <https://community.obsidian.md>（用 Obsidian 账号登录并关联 GitHub，再「Add your plugin」），
+不需要再向 `obsidianmd/obsidian-releases` 提 PR，那个仓库的 PR 入口已经关闭。
 
 ### 冒烟（不用打开 Obsidian）
 
