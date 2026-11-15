@@ -163,6 +163,8 @@ else
   cp tests/*.ts "$WORK/repo/tests/"
   cp scripts/*.sh "$WORK/repo/scripts/"
   cp scripts/*.ts "$WORK/repo/scripts/"
+  # .mjs 不能漏：clone 不通时本脚本会调用 scripts/sync-release-via-api.mjs
+  cp scripts/*.mjs "$WORK/repo/scripts/"
   cp package.json package-lock.json esbuild.config.mjs tsconfig.json "$WORK/repo/"
 
   # 发布仓库自己的忽略规则：只挡依赖和临时产物。
