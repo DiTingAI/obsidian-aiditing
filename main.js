@@ -362,9 +362,6 @@ var notifyUser = () => {
 function setSeekNotifier(fn) {
   notifyUser = fn;
 }
-function findPlayer(scope) {
-  return scope.querySelector("video, audio");
-}
 function findPlayers(scope) {
   return Array.from(scope.querySelectorAll("video, audio"));
 }
@@ -499,7 +496,7 @@ function inspectScope(root) {
 
 // src/settings.ts
 var import_obsidian2 = require("obsidian");
-var CONSOLE_URL = "https://aiditing.cn/workspace";
+var CONSOLE_URL = "https://aiditing.cn/workspace?from=direct&c=20261115-obsidian-plugin";
 var DEFAULT_SETTINGS = {
   apiBase: "https://api.diting.cc",
   apiKey: "",
@@ -523,9 +520,13 @@ var AiditingSettingTab = class extends import_obsidian2.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian2.Setting(containerEl).setName("\u8FD8\u6CA1\u6709 Key\uFF1F").setDesc("\u6253\u5F00\u5DE5\u4F5C\u53F0\u521B\u5EFA\uFF0C\u521B\u5EFA\u540E\u590D\u5236\u56DE\u6765\u7C98\u8D34\u5230\u4E0A\u9762\u3002").addButton(
+    new import_obsidian2.Setting(containerEl).setName("\u8FD8\u6CA1\u6709 Key\uFF1F\u4E24\u6B65\u641E\u5B9A").setDesc("\u2460 \u70B9\u300C\u53BB\u521B\u5EFA\u300D\uFF0C\u5728\u5DE5\u4F5C\u53F0\u767B\u5F55\u540E\u521B\u5EFA Key \u5E76\u590D\u5236 \u2192 \u2461 \u56DE\u6765\u70B9\u300C\u4ECE\u526A\u8D34\u677F\u8BFB\u53D6\u300D\uFF0CKey \u4F1A\u81EA\u52A8\u586B\u5230\u4E0A\u9762\u3002").addButton(
       (button) => button.setButtonText("\u53BB\u521B\u5EFA").setCta().onClick(() => {
         window.open(CONSOLE_URL, "_blank");
+      })
+    ).addButton(
+      (button) => button.setButtonText("\u4ECE\u526A\u8D34\u677F\u8BFB\u53D6").onClick(async () => {
+        if (await this.plugin.applyApiKeyFromClipboard()) this.display();
       })
     );
     new import_obsidian2.Setting(containerEl).setName("API \u5730\u5740").setDesc("\u9ED8\u8BA4 https://api.diting.cc\u3002\u9664\u975E\u6211\u4EEC\u53E6\u884C\u901A\u77E5\uFF0C\u4E0D\u8981\u6539\u8FD9\u91CC\u3002").addText(
@@ -583,6 +584,18 @@ var AiditingPlugin = class extends import_obsidian3.Plugin {
     await this.loadSettings();
     this.addSettingTab(new AiditingSettingTab(this.app, this));
     setSeekNotifier((message, ms) => new import_obsidian3.Notice(message, ms != null ? ms : 8e3));
+    this.app.workspace.onLayoutReady(() => {
+      if (this.settings.apiKey) return;
+      const notice = new import_obsidian3.Notice(
+        "\u7B2C\u4E00\u6B21\u7528 AiDiTing\uFF1F\u2460 \u70B9\u8FD9\u6761\u6D88\u606F\u6253\u5F00\u5DE5\u4F5C\u53F0\uFF08\u6BCF\u6708 30 \u5206\u949F\u514D\u8D39\uFF09\u2461 \u767B\u5F55\u540E\u521B\u5EFA Key \u5E76\u590D\u5236 \u2462 \u56DE\u6765\u8FD0\u884C\u547D\u4EE4\u300C\u7C98\u8D34 API Key\uFF08\u4ECE\u526A\u8D34\u677F\uFF09\u300D",
+        2e4
+      );
+      notice.noticeEl.style.cursor = "pointer";
+      notice.noticeEl.addEventListener("click", () => {
+        window.open(CONSOLE_URL, "_blank");
+        notice.hide();
+      });
+    });
     this.registerMarkdownPostProcessor((el) => {
       var _a, _b;
       const root = (_b = (_a = el.closest(".markdown-preview-sizer")) != null ? _a : el.closest(".markdown-preview-view")) != null ? _b : el;
@@ -599,13 +612,27 @@ var AiditingPlugin = class extends import_obsidian3.Plugin {
         if (code.dataset.aiditingSeek === "1") return;
         const seconds = parseTimestamp((_b = code.textContent) != null ? _b : "");
         if (seconds === null) return;
-        const scope = (_c = code.closest(".workspace-leaf")) != null ? _c : document;
-        const player = findPlayer(scope);
+        const scopeEl = (_c = code.closest(".workspace-leaf")) != null ? _c : document.body;
+        const player = pickPlayer(scopeEl, code);
         if (!player) return;
         seekTo(player, seconds);
       },
       true
     );
+    this.addCommand({
+      id: "open-console",
+      name: "\u6253\u5F00\u5DE5\u4F5C\u53F0\uFF08\u83B7\u53D6 API Key\uFF09",
+      callback: () => {
+        window.open(CONSOLE_URL, "_blank");
+      }
+    });
+    this.addCommand({
+      id: "paste-api-key",
+      name: "\u7C98\u8D34 API Key\uFF08\u4ECE\u526A\u8D34\u677F\uFF09",
+      callback: () => {
+        void this.applyApiKeyFromClipboard();
+      }
+    });
     this.addCommand({
       id: "seek-diagnostics",
       name: "\u68C0\u67E5\u65F6\u95F4\u70B9\u8DF3\u8F6C\u72B6\u6001",
@@ -691,6 +718,36 @@ ${text.slice(0, 400)}`, 2e4)
         );
       })
     );
+  }
+  /**
+   * 从剪贴板取 API Key 并保存。
+   *
+   * 为什么要这个：用户在工作台复制 Key 之后，还得切回 Obsidian、翻进设置页、
+   * 把光标点进输入框、粘贴——这几步里每一步都会掉一批人。
+   * 这里把「复制 → 回来点一下」压成两步，第一次使用就能跑通。
+   */
+  async applyApiKeyFromClipboard() {
+    let text = "";
+    try {
+      text = await navigator.clipboard.readText();
+    } catch (e) {
+      new import_obsidian3.Notice("\u8BFB\u4E0D\u5230\u526A\u8D34\u677F\uFF08\u7CFB\u7EDF\u6CA1\u7ED9\u6743\u9650\uFF09\u3002\u8BF7\u5728\u8BBE\u7F6E\u91CC\u624B\u52A8\u7C98\u8D34 Key\u3002", 1e4);
+      return false;
+    }
+    const key = text.trim();
+    if (!/^sk-[A-Za-z0-9_-]{8,}$/.test(key)) {
+      const preview = key ? `${key.slice(0, 24)}${key.length > 24 ? "\u2026" : ""}` : "\uFF08\u7A7A\uFF09";
+      new import_obsidian3.Notice(
+        `\u526A\u8D34\u677F\u91CC\u4E0D\u662F API Key\u3002\u5148\u5728\u5DE5\u4F5C\u53F0\u70B9\u300C\u521B\u5EFA Key\u300D\u5E76\u590D\u5236\uFF0C\u518D\u56DE\u6765\u8FD0\u884C\u8FD9\u6761\u547D\u4EE4\u3002
+\u8BFB\u5230\u7684\u662F\uFF1A${preview}`,
+        12e3
+      );
+      return false;
+    }
+    this.settings.apiKey = key;
+    await this.saveSettings();
+    new import_obsidian3.Notice("API Key \u5DF2\u4FDD\u5B58\uFF0C\u73B0\u5728\u53EF\u4EE5\u6574\u7406\u97F3\u89C6\u9891\u4E86\u3002", 6e3);
+    return true;
   }
   async loadSettings() {
     const stored = await this.loadData();

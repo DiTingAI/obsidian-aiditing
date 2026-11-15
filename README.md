@@ -8,6 +8,13 @@
 
 对应页面：<https://aiditing.cn/connect/obsidian>
 
+## 第一次用：两步
+
+1. 装好后 Obsidian 会弹一条提示，**点它**打开工作台（每月 30 分钟免费），登录后创建 API Key 并复制
+2. 回 Obsidian 运行命令 **`粘贴 API Key（从剪贴板）`**，Key 自动填好，不用再去翻设置页
+
+没有 Key 时插件不会上传任何文件。
+
 ## English
 
 AiDiTing turns audio and video files inside your vault into timestamped, chaptered Markdown notes.

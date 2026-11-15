@@ -2,7 +2,9 @@ import { App, PluginSettingTab, Setting } from "obsidian";
 import type AiditingPlugin from "./main";
 
 /** 工作台：用户在这里登录并创建 API Key，与网页端共用同一个 Key */
-const CONSOLE_URL = "https://aiditing.cn/workspace";
+// 对外链接必须带归因参数（项目铁律第八节）。插件目前不在渠道白名单里，
+// 先走 direct + 活动标识，靠 c 参数把「插件带来的注册」单独分出来。
+export const CONSOLE_URL = "https://aiditing.cn/workspace?from=direct&c=20261115-obsidian-plugin";
 
 export interface AiditingSettings {
   /** 开放 API 地址，改这里可以指向自建/测试环境 */
@@ -64,8 +66,8 @@ export class AiditingSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("还没有 Key？")
-      .setDesc("打开工作台创建，创建后复制回来粘贴到上面。")
+      .setName("还没有 Key？两步搞定")
+      .setDesc("① 点「去创建」，在工作台登录后创建 Key 并复制 → ② 回来点「从剪贴板读取」，Key 会自动填到上面。")
       .addButton((button) =>
         button
           .setButtonText("去创建")
@@ -73,6 +75,12 @@ export class AiditingSettingTab extends PluginSettingTab {
           .onClick(() => {
             window.open(CONSOLE_URL, "_blank");
           }),
+      )
+      .addButton((button) =>
+        button.setButtonText("从剪贴板读取").onClick(async () => {
+          // 读成功了才重绘：否则输入框会闪一下，用户以为没生效
+          if (await this.plugin.applyApiKeyFromClipboard()) this.display();
+        }),
       );
 
     new Setting(containerEl)

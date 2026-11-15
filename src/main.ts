@@ -16,13 +16,13 @@ import { buildNote } from "./note";
 import { obsidianTransport } from "./obsidian-transport";
 import {
   attachSeekHandlers,
-  findPlayer,
   inspectScope,
   parseTimestamp,
+  pickPlayer,
   seekTo,
   setSeekNotifier,
 } from "./seek";
-import { AiditingSettingTab, DEFAULT_SETTINGS, type AiditingSettings } from "./settings";
+import { AiditingSettingTab, CONSOLE_URL, DEFAULT_SETTINGS, type AiditingSettings } from "./settings";
 
 function isMedia(file: TFile): boolean {
   return isMediaName(file.name);
@@ -38,6 +38,24 @@ export default class AiditingPlugin extends Plugin {
 
     // seek 模块跑单测时不能依赖 obsidian 模块，所以提示通道从外面注入
     setSeekNotifier((message, ms) => new Notice(message, ms ?? 8000));
+
+    // 首次使用引导：没有 Key 就主动说清楚怎么开始。
+    //
+    // 之前是被动的——用户选中文件、点了「整理」，等到的是「还没填 API Key」。
+    // 那一刻他已经在等结果，收到的是一次失败，最省事的反应就是卸载。
+    // 装完第一眼就该看到「下一步做什么」，而不是先失败一次。
+    this.app.workspace.onLayoutReady(() => {
+      if (this.settings.apiKey) return;
+      const notice = new Notice(
+        "第一次用 AiDiTing？① 点这条消息打开工作台（每月 30 分钟免费）② 登录后创建 Key 并复制 ③ 回来运行命令「粘贴 API Key（从剪贴板）」",
+        20000,
+      );
+      notice.noticeEl.style.cursor = "pointer";
+      notice.noticeEl.addEventListener("click", () => {
+        window.open(CONSOLE_URL, "_blank");
+        notice.hide();
+      });
+    });
 
     // 阅读模式：把正文里的 `00:12` 变成可点的时间点，点了跳原生播放器到该秒。
     // 向上找预览容器，是因为嵌入的播放器和正文可能不在同一个渲染段里。
@@ -60,13 +78,32 @@ export default class AiditingPlugin extends Plugin {
         if (code.dataset.aiditingSeek === "1") return; // 阅读模式已接管，别重复触发
         const seconds = parseTimestamp(code.textContent ?? "");
         if (seconds === null) return;
-        const scope = code.closest(".workspace-leaf") ?? document;
-        const player = findPlayer(scope);
+        const scopeEl = (code.closest(".workspace-leaf") ?? document.body) as HTMLElement;
+        // 用 pickPlayer 而不是 findPlayer：同一段嵌入可能渲染出两个 <video>，
+        // 盲取第一个会跳到用户看不见的那个（阅读模式上已经踩过一次，见 docs）。
+        const player = pickPlayer(scopeEl, code);
         if (!player) return;
         seekTo(player, seconds);
       },
       true,
     );
+
+    // 拿 Key 的完整动线做成命令：用户不用记住「设置 → 第三方插件 → 选项」这一串路径
+    this.addCommand({
+      id: "open-console",
+      name: "打开工作台（获取 API Key）",
+      callback: () => {
+        window.open(CONSOLE_URL, "_blank");
+      },
+    });
+
+    this.addCommand({
+      id: "paste-api-key",
+      name: "粘贴 API Key（从剪贴板）",
+      callback: () => {
+        void this.applyApiKeyFromClipboard();
+      },
+    });
 
     // 排查用：点了没反应时，用户跑一下这个命令就能说出「模式 / 时间点 / 播放器」三件事
     this.addCommand({
@@ -161,6 +198,40 @@ export default class AiditingPlugin extends Plugin {
         );
       }),
     );
+  }
+
+  /**
+   * 从剪贴板取 API Key 并保存。
+   *
+   * 为什么要这个：用户在工作台复制 Key 之后，还得切回 Obsidian、翻进设置页、
+   * 把光标点进输入框、粘贴——这几步里每一步都会掉一批人。
+   * 这里把「复制 → 回来点一下」压成两步，第一次使用就能跑通。
+   */
+  async applyApiKeyFromClipboard(): Promise<boolean> {
+    let text = "";
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      new Notice("读不到剪贴板（系统没给权限）。请在设置里手动粘贴 Key。", 10000);
+      return false;
+    }
+
+    const key = text.trim();
+    // 只认明显是 Key 的内容。否则用户剪贴板里是一段正文时会把正文存成 Key，
+    // 之后上传报 401，看起来像「Key 失效」，实际是从来没配对。
+    if (!/^sk-[A-Za-z0-9_-]{8,}$/.test(key)) {
+      const preview = key ? `${key.slice(0, 24)}${key.length > 24 ? "…" : ""}` : "（空）";
+      new Notice(
+        `剪贴板里不是 API Key。先在工作台点「创建 Key」并复制，再回来运行这条命令。\n读到的是：${preview}`,
+        12000,
+      );
+      return false;
+    }
+
+    this.settings.apiKey = key;
+    await this.saveSettings();
+    new Notice("API Key 已保存，现在可以整理音视频了。", 6000);
+    return true;
   }
 
   async loadSettings(): Promise<void> {
