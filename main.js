@@ -222,7 +222,7 @@ function safeFileName(name) {
 }
 
 // src/note.ts
-var TIMESTAMP_LINE = /^\[(\d{1,2}:\d{2}(?::\d{2})?)\]\s*(.*)$/;
+var TIMESTAMP_LINE = /^\[\s*(\d{1,2}:\d{2}(?::\d{2})?)(?:\.\d{1,3})?\s*(?:-->|[-–~])?\s*(?:\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?)?\s*\]\s*(.*)$/;
 function parseTimedLines(raw) {
   if (!raw) return [];
   const lines = [];

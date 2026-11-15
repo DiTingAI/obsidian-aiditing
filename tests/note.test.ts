@@ -22,6 +22,45 @@ test("时间戳解析：无时间戳的行接到上一条后面，不另起一�
   assert.equal(lines[1].text, "第二句");
 });
 
+test("时间戳解析：认后端真实格式 [起 - 止]（含毫秒与区间）", () => {
+  // 2026-11-15 线上事故回归：后端 utils/nls/nls_format.go 输出的是
+  //   [00:12.340 - 00:15.200] 正文
+  // 旧正则只认 [00:12] 正文，结果一行都匹配不上，整篇静默退化成纯文本——
+  // 笔记里既没有章节也没有逐句时间戳，而 README 承诺的正是「点回去能听到原话」。
+  const lines = parseTimedLines(
+    "[00:12.340 - 00:15.200] 第一句\n[00:15.200 - 00:18.900] 第二句\n[01:02:03.500 --> 01:02:06.000] 第三句",
+  );
+  assert.equal(lines.length, 3);
+  assert.equal(lines[0].ts, "00:12");
+  assert.equal(lines[0].text, "第一句");
+  assert.equal(lines[1].ts, "00:15");
+  assert.equal(lines[2].ts, "01:02:03");
+  assert.deepEqual(lines.map((l) => l.seconds), [12, 15, 3723]);
+});
+
+test("笔记：后端区间格式也能切章节、保留逐句时间戳（不止是纯文本）", () => {
+  const note = buildNote(
+    {
+      taskId: "tsk_nls",
+      status: "completed",
+      durationSeconds: 720,
+      textWithTimestamp: "[00:00.000 - 00:03.200] 开场白\n[11:30.000 - 11:33.500] 第二段",
+      text: "开场白 第二段",
+    },
+    {
+      sourceName: "clip.mov",
+      title: "clip",
+      taskId: "tsk_nls",
+      apiBase: "https://api.diting.cc",
+      sectionMinutes: 10,
+    },
+  );
+  assert.match(note, /### \[00:00\] 第 1 段/);
+  assert.match(note, /### \[11:30\] 第 2 段/);
+  assert.match(note, /- `00:00` 开场白/);
+  assert.match(note, /## 纯文本/);
+});
+
 test("时长格式化：不足一小时不显示小时位", () => {
   assert.equal(formatDuration(65), "01:05");
   assert.equal(formatDuration(3750), "01:02:30");
