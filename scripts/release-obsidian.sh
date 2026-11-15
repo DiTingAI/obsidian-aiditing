@@ -127,6 +127,12 @@ for attempt in 1 2 3; do
   fi
 done
 
+# 同步方式：clone 通了走 git；clone 不通但远端已有内容时改走 GitHub API。
+# 理由见 scripts/sync-release-via-api.mjs 顶部注释：某些网络下 git 的长连接会断
+# （HTTP2 framing / 443 超时），而 api.github.com 一直正常，且 Release 与资产上传
+# 本来就走 API、和 git 通道无关——不该因为 clone 失败就让整个发版作废。
+SYNC_MODE="git"
+
 if [ "$CLONED" -eq 0 ]; then
   if [ "$REMOTE_EMPTY" = "1" ]; then
     say "发布仓库是空的，初始化"
@@ -136,26 +142,32 @@ if [ "$CLONED" -eq 0 ]; then
     git -C "$WORK/repo" checkout -q -b main
   else
     sed -e "s|${TOKEN}|***|g" "$WORK/clone.err" | head -5 >&2
-    die "clone ${REPO} 失败，但远端已有提交。先排查网络或 token 权限，不要当空仓库覆盖"
+    say "clone 不通，改走 GitHub API 同步仓库文件（Release 与资产不受影响）"
+    SYNC_MODE="api"
   fi
 fi
 
-# 构建产物：Release 附件从这里传，仓库根也留一份（审核打开仓库就能读，不用去翻 Release）
-cp main.js manifest.json styles.css versions.json README.md LICENSE "$WORK/repo/"
+if [ "$SYNC_MODE" = "api" ]; then
+  GH_TOKEN="$TOKEN" RELEASE_REPO="$REPO" node scripts/sync-release-via-api.mjs \
+    || die "API 同步失败。检查 token 是否有 ${REPO} 的 contents:write，或稍后重试"
+else
+  # 构建产物：Release 附件从这里传，仓库根也留一份（审核打开仓库就能读，不用去翻 Release）
+  cp main.js manifest.json styles.css versions.json README.md LICENSE "$WORK/repo/"
 
-# 源码：必须公开在仓库里。
-# 社区目录的审核文档原话是「we need to access to the source code on GitHub」，
-# 审核是自动跑的，不会来问我们要不要私有仓库授权——看不到源码这条就卡住。
-# MIT 协议本来也要求能拿到源码，这里一并同步，顺手把可复现构建的材料凑齐。
-mkdir -p "$WORK/repo/src" "$WORK/repo/tests" "$WORK/repo/scripts"
-cp src/*.ts "$WORK/repo/src/"
-cp tests/*.ts "$WORK/repo/tests/"
-cp scripts/*.sh "$WORK/repo/scripts/"
-cp scripts/*.ts "$WORK/repo/scripts/"
-cp package.json package-lock.json esbuild.config.mjs tsconfig.json "$WORK/repo/"
+  # 源码：必须公开在仓库里。
+  # 社区目录的审核文档原话是「we need to access to the source code on GitHub」，
+  # 审核是自动跑的，不会来问我们要不要私有仓库授权——看不到源码这条就卡住。
+  # MIT 协议本来也要求能拿到源码，这里一并同步，顺手把可复现构建的材料凑齐。
+  mkdir -p "$WORK/repo/src" "$WORK/repo/tests" "$WORK/repo/scripts"
+  cp src/*.ts "$WORK/repo/src/"
+  cp tests/*.ts "$WORK/repo/tests/"
+  cp scripts/*.sh "$WORK/repo/scripts/"
+  cp scripts/*.ts "$WORK/repo/scripts/"
+  cp package.json package-lock.json esbuild.config.mjs tsconfig.json "$WORK/repo/"
 
-# 发布仓库自己的忽略规则：只挡依赖和临时产物。
-# 不能沿用 .gitignore —— 它忽略了 main.js，而这里恰恰要让 main.js 入库。
+  # 发布仓库自己的忽略规则：只挡依赖和临时产物。
+  # 不能沿用 .gitignore —— 它忽略了 main.js，而这里恰恰要让 main.js 入库。
+  # 注意：heredoc 的结束符必须顶格，不能跟着 if 一起缩进。
 cat > "$WORK/repo/.gitignore" <<'IGNORE'
 node_modules/
 dist/
@@ -163,15 +175,16 @@ dist/
 .DS_Store
 IGNORE
 
-git -C "$WORK/repo" config user.name "aiditing-bot"
-git -C "$WORK/repo" config user.email "bot@aiditing.cn"
-git -C "$WORK/repo" add -A
-if git -C "$WORK/repo" diff --cached --quiet; then
-  say "产物与上次一致，跳过提交"
-else
-  git -C "$WORK/repo" commit -q -m "release ${VERSION}"
-  git -C "$WORK/repo" push -q origin HEAD:main
-  say "已推送"
+  git -C "$WORK/repo" config user.name "aiditing-bot"
+  git -C "$WORK/repo" config user.email "bot@aiditing.cn"
+  git -C "$WORK/repo" add -A
+  if git -C "$WORK/repo" diff --cached --quiet; then
+    say "产物与上次一致，跳过提交"
+  else
+    git -C "$WORK/repo" commit -q -m "release ${VERSION}"
+    git -C "$WORK/repo" push -q origin HEAD:main
+    say "已推送"
+  fi
 fi
 
 # ---------- 6. 创建或更新 Release ----------
