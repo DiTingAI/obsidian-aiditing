@@ -496,7 +496,7 @@ function inspectScope(root) {
 
 // src/settings.ts
 var import_obsidian2 = require("obsidian");
-var CONSOLE_URL = "https://aiditing.cn/workspace?from=direct&c=20261115-obsidian-plugin";
+var CONSOLE_URL = "https://aiditing.cn/workspace?from=obsidian&c=20261115-obsidian-plugin";
 var DEFAULT_SETTINGS = {
   apiBase: "https://api.diting.cc",
   apiKey: "",
