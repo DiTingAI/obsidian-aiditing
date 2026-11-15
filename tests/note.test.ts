@@ -114,9 +114,9 @@ test("笔记：文件名带 wiki 链接保留字符时不嵌入（宁可不嵌�
   }
 });
 
-test("笔记：开头说明不再承诺「点一下时间点就跳转」", () => {
-  // 实测结论：Obsidian 不会把行内代码 `00:12` 变成可点击跳转链接。
-  // 文案必须只说事实——时间点是位置标注，回听要靠播放器时间轴。
+test("笔记：开头说明承诺「点一下时间点就跳转」（0.1.7 起已实现，文案跟着改）", () => {
+  // 0.1.6 及之前这句写的是「对照播放器的时间轴拖动即可回听」——因为当时点不动。
+  // 0.1.7 起 seek.ts 会给行内代码时间点挂点击事件，文案必须同步，否则用户不知道能点。
   const note = buildNote(
     { taskId: "tsk_copy", status: "completed", textWithTimestamp: "[00:05] 一句", text: "一句" },
     {
@@ -127,8 +127,8 @@ test("笔记：开头说明不再承诺「点一下时间点就跳转」", () =>
       sectionMinutes: 10,
     },
   );
-  assert.doesNotMatch(note, /点一下时间点|点回去就能听到/);
-  assert.match(note, /对照播放器的时间轴拖动即可回听/);
+  assert.match(note, /点一下就会跳到那句话的原声/);
+  assert.doesNotMatch(note, /拖动即可回听/);
 });
 
 test("时长格式化：不足一小时不显示小时位", () => {
@@ -241,4 +241,64 @@ test("笔记：正文为空时抛错，而不是写一篇空笔记", () => {
       ),
     /没有正文/,
   );
+});
+
+test("时间戳解析：认无括号的 `hh:mm:ss - 正文`（线上真实格式）", () => {
+  // 2026-11-15 查生产库 video_processing_tasks.transcript_with_timestamp 确认：
+  // 真实内容是「00:00:00 - 正文」，没有方括号。旧正则要求 ^\[ ，
+  // 这类数据一条都匹配不上，整篇静默退化成纯文本、时间点全丢。
+  const lines = parseTimedLines(
+    "00:00:00 - 你的打野打法说得听点，叫随机应变\n00:00:08 - 你就得跟着节奏走",
+  );
+  assert.equal(lines.length, 2);
+  assert.equal(lines[0].ts, "00:00:00");
+  assert.equal(lines[0].seconds, 0);
+  assert.equal(lines[1].ts, "00:00:08");
+  assert.equal(lines[1].seconds, 8);
+  assert.match(lines[1].text, /跟着节奏/);
+});
+
+test("时间戳解析：无括号又没有区间分隔符的普通正文不被误判", () => {
+  // 「12:30 会议室集合」是人话不是时间点。没有 - / --> 就不认，
+  // 否则正文会被切碎成一句一段。
+  const lines = parseTimedLines("[00:05] 先有一句\n12:30 会议室集合");
+  assert.equal(lines.length, 1);
+  assert.match(lines[0].text, /会议室集合/);
+});
+
+test("笔记：无括号格式也能切章节，并写成可点的行内代码", () => {
+  const note = buildNote(
+    {
+      taskId: "tsk_bare",
+      status: "completed",
+      textWithTimestamp: "00:00:00 - 第一句话\n00:00:08 - 第二句话",
+      text: "第一句话第二句话",
+    },
+    {
+      sourceName: "b.mp4",
+      title: "b",
+      taskId: "tsk_bare",
+      apiBase: "https://api.diting.cc",
+      sectionMinutes: 0,
+    },
+  );
+  assert.match(note, /`00:00:00`/);
+  assert.match(note, /`00:00:08`/);
+  assert.doesNotMatch(note, /这次的结果没有时间点/);
+});
+
+test("笔记：拿不到时间戳时明确告知，而不是静默退化", () => {
+  // 静默退化会让人以为是插件不支持，也会掩盖后端返回格式的问题。
+  const note = buildNote(
+    { taskId: "tsk_plain", status: "completed", text: "只有纯文本" },
+    {
+      sourceName: "c.mp3",
+      title: "c",
+      taskId: "tsk_plain",
+      apiBase: "https://api.diting.cc",
+      sectionMinutes: 10,
+    },
+  );
+  assert.match(note, /这次的结果没有时间点/);
+  assert.match(note, /只有纯文本/);
 });

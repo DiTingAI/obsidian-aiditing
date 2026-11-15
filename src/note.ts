@@ -38,13 +38,22 @@ export interface TimedLine {
   text: string;
 }
 
-// 必须同时认两种格式，否则整篇会静默退化成纯文本（2026-11-15 线上实际踩到）：
+// 后端真实格式（2026-11-15 直接查生产库 video_processing_tasks.transcript_with_timestamp 确认）：
+//   00:00:00 - 正文                   —— **无方括号**，这是线上主流格式
 //   [00:12] 正文                      —— 早期写法 / 手工整理的片段
-//   [00:12.340 - 00:15.200] 正文      —— 后端 nls_format.go 的真实输出：起止区间 + 毫秒
-//   [00:12.340 --> 00:15.200] 正文    —— SRT 风格，其他 ASR 源可能给这个
+//   [00:12.340 - 00:15.200] 正文      —— nls_format.go 的起止区间 + 毫秒
+//   [00:12.340 --> 00:15.200] 正文    —— SRT 风格
 // 只捕获**起始**时间：章节切分和跳转都按起始点算，结束时间对读者没有额外信息。
-const TIMESTAMP_LINE =
+//
+// 之前这里只有一条「必须带方括号」的正则，线上真实数据一条都匹配不上，
+// 结果整篇静默退化成纯文本、时间点全丢——用户看到的就是「生成的笔记没有时间戳」。
+//
+// 拆成两条：不带括号的**必须**有区间分隔符（- / --> / ~），
+// 否则任何以「12:30」开头的普通正文都会被误判成时间戳，段落会被切碎。
+const BRACKETED_LINE =
   /^\[\s*(\d{1,2}:\d{2}(?::\d{2})?)(?:\.\d{1,3})?\s*(?:-->|[-–~])?\s*(?:\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?)?\s*\]\s*(.*)$/;
+const BARE_LINE =
+  /^(\d{1,2}:\d{2}(?::\d{2})?)(?:\.\d{1,3})?\s*(?:-->|[-–~])\s*(?:\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?)?\s*(.*)$/;
 
 /** 解析 `[00:12] 正文……` 每一行；解析不出时间戳的行归到上一条后面 */
 export function parseTimedLines(raw: string | undefined): TimedLine[] {
@@ -55,7 +64,7 @@ export function parseTimedLines(raw: string | undefined): TimedLine[] {
     const line = rawLine.trim();
     if (!line) continue;
 
-    const m = TIMESTAMP_LINE.exec(line);
+    const m = BRACKETED_LINE.exec(line) ?? BARE_LINE.exec(line);
     if (m) {
       lines.push({ ts: m[1], seconds: toSeconds(m[1]), text: m[2].trim() });
       continue;
@@ -146,7 +155,7 @@ export function buildNote(task: TaskView, meta: NoteMeta): string {
   const body: string[] = [
     "",
     "> [!warning] 这是 AI 整理的初稿",
-    "> 转写和术语纠正都可能出错，正式引用前请核对原音。每条前面是这句话在原始音视频里的时间点，对照播放器的时间轴拖动即可回听。",
+    "> 转写和术语纠正都可能出错，正式引用前请核对原音。每条前面的时间点**点一下就会跳到那句话的原声**（阅读模式下，上方播放器会跟着跳）。",
     "",
   ];
 
@@ -172,7 +181,18 @@ export function buildNote(task: TaskView, meta: NoteMeta): string {
       body.push("");
     });
   } else {
-    body.push("## 正文", "", plain, "");
+    // 没有解析出时间戳时，必须明说。安静地给一段没有时间点的正文，
+    // 用户会以为插件本来就不支持，我们看到的现象也会被误判成「功能没做」——
+    // 2026-11-15 就因为这里的静默退化，把后端格式问题查成了插件问题。
+    body.push(
+      "> [!info] 这次的结果没有时间点",
+      "> 转写结果是纯文本，后端没有返回每句话的时间。正文照常可用，但点时间点回原音这一项用不了。",
+      "",
+      "## 正文",
+      "",
+      plain,
+      "",
+    );
   }
 
   // 带时间戳的正文适合核对，纯文本适合复制粘贴。两个都给，别让用户自己洗格式。

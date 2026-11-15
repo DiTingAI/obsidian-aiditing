@@ -222,14 +222,16 @@ function safeFileName(name) {
 }
 
 // src/note.ts
-var TIMESTAMP_LINE = /^\[\s*(\d{1,2}:\d{2}(?::\d{2})?)(?:\.\d{1,3})?\s*(?:-->|[-–~])?\s*(?:\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?)?\s*\]\s*(.*)$/;
+var BRACKETED_LINE = /^\[\s*(\d{1,2}:\d{2}(?::\d{2})?)(?:\.\d{1,3})?\s*(?:-->|[-–~])?\s*(?:\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?)?\s*\]\s*(.*)$/;
+var BARE_LINE = /^(\d{1,2}:\d{2}(?::\d{2})?)(?:\.\d{1,3})?\s*(?:-->|[-–~])\s*(?:\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?)?\s*(.*)$/;
 function parseTimedLines(raw) {
+  var _a;
   if (!raw) return [];
   const lines = [];
   for (const rawLine of raw.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) continue;
-    const m = TIMESTAMP_LINE.exec(line);
+    const m = (_a = BRACKETED_LINE.exec(line)) != null ? _a : BARE_LINE.exec(line);
     if (m) {
       lines.push({ ts: m[1], seconds: toSeconds(m[1]), text: m[2].trim() });
       continue;
@@ -302,7 +304,7 @@ function buildNote(task, meta) {
   const body = [
     "",
     "> [!warning] \u8FD9\u662F AI \u6574\u7406\u7684\u521D\u7A3F",
-    "> \u8F6C\u5199\u548C\u672F\u8BED\u7EA0\u6B63\u90FD\u53EF\u80FD\u51FA\u9519\uFF0C\u6B63\u5F0F\u5F15\u7528\u524D\u8BF7\u6838\u5BF9\u539F\u97F3\u3002\u6BCF\u6761\u524D\u9762\u662F\u8FD9\u53E5\u8BDD\u5728\u539F\u59CB\u97F3\u89C6\u9891\u91CC\u7684\u65F6\u95F4\u70B9\uFF0C\u5BF9\u7167\u64AD\u653E\u5668\u7684\u65F6\u95F4\u8F74\u62D6\u52A8\u5373\u53EF\u56DE\u542C\u3002",
+    "> \u8F6C\u5199\u548C\u672F\u8BED\u7EA0\u6B63\u90FD\u53EF\u80FD\u51FA\u9519\uFF0C\u6B63\u5F0F\u5F15\u7528\u524D\u8BF7\u6838\u5BF9\u539F\u97F3\u3002\u6BCF\u6761\u524D\u9762\u7684\u65F6\u95F4\u70B9**\u70B9\u4E00\u4E0B\u5C31\u4F1A\u8DF3\u5230\u90A3\u53E5\u8BDD\u7684\u539F\u58F0**\uFF08\u9605\u8BFB\u6A21\u5F0F\u4E0B\uFF0C\u4E0A\u65B9\u64AD\u653E\u5668\u4F1A\u8DDF\u7740\u8DF3\uFF09\u3002",
     ""
   ];
   if (meta.embedSource && !/[[\]|#]/.test(meta.sourceName)) {
@@ -322,7 +324,15 @@ function buildNote(task, meta) {
       body.push("");
     });
   } else {
-    body.push("## \u6B63\u6587", "", plain, "");
+    body.push(
+      "> [!info] \u8FD9\u6B21\u7684\u7ED3\u679C\u6CA1\u6709\u65F6\u95F4\u70B9",
+      "> \u8F6C\u5199\u7ED3\u679C\u662F\u7EAF\u6587\u672C\uFF0C\u540E\u7AEF\u6CA1\u6709\u8FD4\u56DE\u6BCF\u53E5\u8BDD\u7684\u65F6\u95F4\u3002\u6B63\u6587\u7167\u5E38\u53EF\u7528\uFF0C\u4F46\u70B9\u65F6\u95F4\u70B9\u56DE\u539F\u97F3\u8FD9\u4E00\u9879\u7528\u4E0D\u4E86\u3002",
+      "",
+      "## \u6B63\u6587",
+      "",
+      plain,
+      ""
+    );
   }
   if (timed.length > 0 && plain) {
     body.push("## \u7EAF\u6587\u672C\uFF08\u53BB\u6389\u65F6\u95F4\u6233\uFF0C\u4FBF\u4E8E\u590D\u5236\uFF09", "", plain, "");
