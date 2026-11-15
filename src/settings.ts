@@ -2,9 +2,9 @@ import { App, PluginSettingTab, Setting } from "obsidian";
 import type AiditingPlugin from "./main";
 
 /** 工作台：用户在这里登录并创建 API Key，与网页端共用同一个 Key */
-// 对外链接必须带归因参数（项目铁律第八节）。插件目前不在渠道白名单里，
-// 先走 direct + 活动标识，靠 c 参数把「插件带来的注册」单独分出来。
-export const CONSOLE_URL = "https://aiditing.cn/workspace?from=direct&c=20261115-obsidian-plugin";
+// 对外链接必须带归因参数（项目铁律第八节）。obsidian 已于 2026-11-15 登记进白名单，
+// 用来把「插件带来的注册」和直接访问分开统计。
+export const CONSOLE_URL = "https://aiditing.cn/workspace?from=obsidian&c=20261115-obsidian-plugin";
 
 export interface AiditingSettings {
   /** 开放 API 地址，改这里可以指向自建/测试环境 */
