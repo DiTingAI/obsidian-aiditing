@@ -45,7 +45,7 @@ cd integrations/obsidian
 npm install
 npm run build     # tsc --noEmit + esbuild 产出 main.js
 npm test          # 单测：时间戳解析 / 章节切分 / YAML 转义 / multipart 拼装 / 任务号解析
-./scripts/package.sh   # 打成 dist/aiditing-0.1.0.zip（内测分发包）
+./scripts/package.sh   # 打成 dist/aiditing-0.1.0.zip（本地分发包，手动装用）
 ```
 
 产物是根目录的 `main.js`，和 `manifest.json`、`styles.css` 一起构成插件包。

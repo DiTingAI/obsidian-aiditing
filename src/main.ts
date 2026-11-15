@@ -76,11 +76,16 @@ export default class AiditingPlugin extends Plugin {
   /** 主流程：读文件 → 上传 → 等待 → 生成 → 确认路径 → 写新文件 */
   async run(file: TFile): Promise<void> {
     if (!Platform.isDesktopApp) {
-      new Notice("内测期只验证了桌面端 Obsidian，手机端暂不支持。");
+      new Notice("仅支持桌面端 Obsidian；手机端不加载这个插件。");
       return;
     }
     if (!this.settings.apiKey) {
-      new Notice("还没填内测 Key。打开 设置 → 第三方插件 → 爱谛听，粘贴我们发给你的 Key。", 10000);
+      // 已上架社区市场，不会再有「我们发 Key 给你」这回事，文案必须能自解释：
+      // 说清去哪里拿、免费额度多少，否则市场用户装完只会看到一句无从下手的提示。
+      new Notice(
+        "还没填 API Key。设置 → 第三方插件 → AiDiTing → 选项，填上即可；没有 Key 可去 aiditing.cn/workspace 创建（免费额度每月 30 分钟）。",
+        12000,
+      );
       return;
     }
 

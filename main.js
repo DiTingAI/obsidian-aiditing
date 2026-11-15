@@ -180,11 +180,8 @@ function describe(err) {
 }
 function sleep(ms) {
   return new Promise((resolve) => {
-    if (typeof window !== "undefined") {
-      window.setTimeout(() => resolve(), ms);
-    } else {
-      setTimeout(() => resolve(), ms);
-    }
+    const schedule = typeof window !== "undefined" ? window.setTimeout.bind(window) : globalThis.setTimeout;
+    schedule(() => resolve(), ms);
   });
 }
 
@@ -461,11 +458,14 @@ var AiditingPlugin = class extends import_obsidian3.Plugin {
   async run(file) {
     var _a;
     if (!import_obsidian3.Platform.isDesktopApp) {
-      new import_obsidian3.Notice("\u5185\u6D4B\u671F\u53EA\u9A8C\u8BC1\u4E86\u684C\u9762\u7AEF Obsidian\uFF0C\u624B\u673A\u7AEF\u6682\u4E0D\u652F\u6301\u3002");
+      new import_obsidian3.Notice("\u4EC5\u652F\u6301\u684C\u9762\u7AEF Obsidian\uFF1B\u624B\u673A\u7AEF\u4E0D\u52A0\u8F7D\u8FD9\u4E2A\u63D2\u4EF6\u3002");
       return;
     }
     if (!this.settings.apiKey) {
-      new import_obsidian3.Notice("\u8FD8\u6CA1\u586B\u5185\u6D4B Key\u3002\u6253\u5F00 \u8BBE\u7F6E \u2192 \u7B2C\u4E09\u65B9\u63D2\u4EF6 \u2192 \u7231\u8C1B\u542C\uFF0C\u7C98\u8D34\u6211\u4EEC\u53D1\u7ED9\u4F60\u7684 Key\u3002", 1e4);
+      new import_obsidian3.Notice(
+        "\u8FD8\u6CA1\u586B API Key\u3002\u8BBE\u7F6E \u2192 \u7B2C\u4E09\u65B9\u63D2\u4EF6 \u2192 AiDiTing \u2192 \u9009\u9879\uFF0C\u586B\u4E0A\u5373\u53EF\uFF1B\u6CA1\u6709 Key \u53EF\u53BB aiditing.cn/workspace \u521B\u5EFA\uFF08\u514D\u8D39\u989D\u5EA6\u6BCF\u6708 30 \u5206\u949F\uFF09\u3002",
+        12e3
+      );
       return;
     }
     const size = file.stat.size;

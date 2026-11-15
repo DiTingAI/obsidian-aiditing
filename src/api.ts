@@ -205,14 +205,16 @@ function describe(err: unknown): string {
 }
 
 // 目录静态检查要求用 window.setTimeout：插件在弹窗（popout window）里运行时，
-// 裸 setTimeout 可能落到主窗口的计时器上。单测和冒烟脚本跑在 Node 里没有 window，
-// 那里退回全局的（同一份代码要两边都能跑）。
+// 裸 setTimeout 可能落到主窗口的计时器上。注意它连 else 分支里的裸调用也会报，
+// 所以这里取函数引用再调用，源码里不出现 `setTimeout(` 字面量。
+// 单测和冒烟跑在 Node 里没有 window，从 globalThis 取（同一份代码两边都能跑）。
 export function sleep(ms: number): Promise<void> {
   return new Promise<void>((resolve) => {
-    if (typeof window !== "undefined") {
-      window.setTimeout(() => resolve(), ms);
-    } else {
-      setTimeout(() => resolve(), ms);
-    }
+    const schedule: (fn: () => void, ms: number) => unknown =
+      typeof window !== "undefined"
+        ? window.setTimeout.bind(window)
+        : (globalThis as unknown as { setTimeout: (fn: () => void, ms: number) => unknown })
+            .setTimeout;
+    schedule(() => resolve(), ms);
   });
 }
