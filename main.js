@@ -345,6 +345,148 @@ var obsidianTransport = async (req) => {
   return { status: res.status, text: res.text };
 };
 
+// src/seek.ts
+var TS_RE = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/;
+var notifyUser = () => {
+};
+function setSeekNotifier(fn) {
+  notifyUser = fn;
+}
+function findPlayer(scope) {
+  return scope.querySelector("video, audio");
+}
+function findPlayers(scope) {
+  return Array.from(scope.querySelectorAll("video, audio"));
+}
+function pickPlayer(root, anchor) {
+  var _a, _b;
+  const scope = (_a = root.closest(".workspace-leaf")) != null ? _a : root;
+  const candidates = Array.from(/* @__PURE__ */ new Set([...findPlayers(root), ...findPlayers(scope)]));
+  if (candidates.length <= 1) return (_b = candidates[0]) != null ? _b : null;
+  const anchorRect = anchor ? anchor.getBoundingClientRect() : null;
+  let best = null;
+  let bestScore = -Infinity;
+  for (const m of candidates) {
+    const r = m.getBoundingClientRect();
+    const visible = r.width > 0 && r.height > 0;
+    let score = 0;
+    if (visible) score += 100;
+    if (!m.paused) score += 50;
+    if (m.currentTime > 0) score += 20;
+    if (visible && anchorRect) {
+      const dy = Math.abs(r.top + r.height / 2 - (anchorRect.top + anchorRect.height / 2));
+      score -= Math.min(dy / 100, 40);
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = m;
+    }
+  }
+  return best;
+}
+function seekTo(player, seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return false;
+  let resumed = false;
+  const startPlayback = () => {
+    if (resumed) return;
+    resumed = true;
+    try {
+      void player.play();
+    } catch (e) {
+    }
+  };
+  const apply = () => {
+    try {
+      player.pause();
+      player.currentTime = seconds;
+    } catch (e) {
+      return;
+    }
+    const onSeeked = () => {
+      player.removeEventListener("seeked", onSeeked);
+      requestAnimationFrame(startPlayback);
+    };
+    player.addEventListener("seeked", onSeeked);
+    window.setTimeout(() => {
+      player.removeEventListener("seeked", onSeeked);
+      startPlayback();
+    }, 400);
+  };
+  if (player.readyState === 0) {
+    const onReady = () => {
+      player.removeEventListener("loadedmetadata", onReady);
+      apply();
+    };
+    player.addEventListener("loadedmetadata", onReady);
+    window.setTimeout(onReady, 1500);
+    return true;
+  }
+  apply();
+  return true;
+}
+function parseTimestamp(text) {
+  const m = TS_RE.exec(text.trim());
+  if (!m) return null;
+  const a = Number(m[1]);
+  const b = Number(m[2]);
+  const c = m[3] === void 0 ? null : Number(m[3]);
+  return c === null ? a * 60 + b : a * 3600 + b * 60 + c;
+}
+function attachSeekHandlers(root) {
+  var _a, _b;
+  const codes = Array.from(root.querySelectorAll("code"));
+  if (codes.length === 0) return 0;
+  const playerNow = (anchor) => pickPlayer(root, anchor);
+  let wired = 0;
+  for (const code of codes) {
+    const el = code;
+    if (el.dataset.aiditingSeek === "1") continue;
+    const seconds = parseTimestamp((_a = el.textContent) != null ? _a : "");
+    if (seconds === null) continue;
+    el.dataset.aiditingSeek = "1";
+    const label = ((_b = el.textContent) != null ? _b : "").trim();
+    const markClickable = (hasPlayer) => {
+      if (!hasPlayer) return;
+      el.classList.add("aiditing-ts");
+      el.setAttribute("role", "button");
+      el.setAttribute("title", `\u70B9\u51FB\u8DF3\u5230 ${label}`);
+    };
+    markClickable(Boolean(playerNow(el)));
+    if (!playerNow(el)) {
+      window.setTimeout(() => markClickable(Boolean(playerNow(el))), 500);
+    }
+    el.addEventListener("click", (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      const player = playerNow(el);
+      if (!player) {
+        notifyUser(`\u8FD9\u7BC7\u7B14\u8BB0\u91CC\u6CA1\u6709\u627E\u5230\u539F\u5A92\u4F53\u64AD\u653E\u5668\uFF0C\u65F6\u95F4\u70B9 ${label} \u65E0\u6CD5\u8DF3\u8F6C\u3002`, 8e3);
+        return;
+      }
+      player.scrollIntoView({ block: "nearest" });
+      seekTo(player, seconds);
+    });
+    wired += 1;
+  }
+  return wired;
+}
+function inspectScope(root) {
+  var _a;
+  const codes = Array.from(root.querySelectorAll("code"));
+  const ts = codes.map((c) => {
+    var _a2;
+    return parseTimestamp((_a2 = c.textContent) != null ? _a2 : "");
+  }).filter((n) => n !== null);
+  const scope = root instanceof Element ? (_a = root.closest(".workspace-leaf")) != null ? _a : root : root;
+  const mediaCount = findPlayers(scope).length;
+  return {
+    timestamps: ts.length,
+    player: mediaCount > 0,
+    mediaCount,
+    wired: codes.filter((c) => c.dataset.aiditingSeek === "1").length
+  };
+}
+
 // src/settings.ts
 var import_obsidian2 = require("obsidian");
 var CONSOLE_URL = "https://aiditing.cn/workspace";
@@ -430,6 +572,90 @@ var AiditingPlugin = class extends import_obsidian3.Plugin {
   async onload() {
     await this.loadSettings();
     this.addSettingTab(new AiditingSettingTab(this.app, this));
+    setSeekNotifier((message, ms) => new import_obsidian3.Notice(message, ms != null ? ms : 8e3));
+    this.registerMarkdownPostProcessor((el) => {
+      var _a, _b;
+      const root = (_b = (_a = el.closest(".markdown-preview-sizer")) != null ? _a : el.closest(".markdown-preview-view")) != null ? _b : el;
+      attachSeekHandlers(root);
+    });
+    this.registerDomEvent(
+      document,
+      "mousedown",
+      (evt) => {
+        var _a, _b, _c;
+        const target = evt.target;
+        const code = (_a = target == null ? void 0 : target.closest) == null ? void 0 : _a.call(target, "code");
+        if (!code) return;
+        if (code.dataset.aiditingSeek === "1") return;
+        const seconds = parseTimestamp((_b = code.textContent) != null ? _b : "");
+        if (seconds === null) return;
+        const scope = (_c = code.closest(".workspace-leaf")) != null ? _c : document;
+        const player = findPlayer(scope);
+        if (!player) return;
+        seekTo(player, seconds);
+      },
+      true
+    );
+    this.addCommand({
+      id: "seek-diagnostics",
+      name: "\u68C0\u67E5\u65F6\u95F4\u70B9\u8DF3\u8F6C\u72B6\u6001",
+      callback: () => {
+        const view = this.app.workspace.getActiveViewOfType(import_obsidian3.MarkdownView);
+        if (!view) {
+          new import_obsidian3.Notice("\u5148\u6253\u5F00\u4E00\u7BC7\u7B14\u8BB0\uFF0C\u518D\u8FD0\u884C\u8FD9\u4E2A\u68C0\u67E5\u3002");
+          return;
+        }
+        const info = inspectScope(view.containerEl);
+        const mode = view.getMode() === "preview" ? "\u9605\u8BFB\u6A21\u5F0F" : "\u7F16\u8F91\u6A21\u5F0F\uFF08Live Preview\uFF09";
+        new import_obsidian3.Notice(
+          `\u6A21\u5F0F\uFF1A${mode}
+\u65F6\u95F4\u70B9\uFF1A${info.timestamps} \u4E2A\uFF08\u5DF2\u6302\u70B9\u51FB ${info.wired} \u4E2A\uFF09
+\u64AD\u653E\u5668\uFF1A${info.mediaCount} \u4E2A`,
+          12e3
+        );
+      }
+    });
+    this.addCommand({
+      id: "seek-media-dump",
+      name: "\u5BFC\u51FA\u64AD\u653E\u5668\u72B6\u6001\uFF08\u590D\u5236\u5230\u526A\u8D34\u677F\uFF09",
+      callback: () => {
+        const view = this.app.workspace.getActiveViewOfType(import_obsidian3.MarkdownView);
+        if (!view) {
+          new import_obsidian3.Notice("\u5148\u6253\u5F00\u4E00\u7BC7\u7B14\u8BB0\uFF0C\u518D\u8FD0\u884C\u8FD9\u4E2A\u3002");
+          return;
+        }
+        const media = Array.from(view.containerEl.querySelectorAll("video, audio"));
+        if (media.length === 0) {
+          new import_obsidian3.Notice("\u8FD9\u7BC7\u7B14\u8BB0\u91CC\u6CA1\u6709 video / audio \u5143\u7D20\u3002", 8e3);
+          return;
+        }
+        const range = (r) => {
+          const out = [];
+          for (let i = 0; i < r.length; i += 1) out.push(`${r.start(i).toFixed(2)}-${r.end(i).toFixed(2)}`);
+          return out.length ? out.join(", ") : "(\u7A7A)";
+        };
+        const lines = [`media \u5143\u7D20: ${media.length} \u4E2A`];
+        media.forEach((m, i) => {
+          var _a;
+          const path = (_a = m.getAttribute("src")) != null ? _a : "";
+          const r = m.getBoundingClientRect();
+          lines.push(
+            `[${i}] ${m.tagName}  currentTime=${m.currentTime.toFixed(2)}  duration=${String(m.duration)}  paused=${m.paused}`,
+            `    readyState=${m.readyState} networkState=${m.networkState} error=${m.error ? m.error.code : "none"}`,
+            `    videoWidth=${m.videoWidth} videoHeight=${m.videoHeight}`,
+            `    rect=${Math.round(r.width)}x${Math.round(r.height)} top=${Math.round(r.top)} \u53EF\u89C1=${r.width > 0 && r.height > 0}`,
+            `    seekable=[${range(m.seekable)}]  buffered=[${range(m.buffered)}]`,
+            `    src=${path.slice(0, 100)}`
+          );
+        });
+        const text = lines.join("\n");
+        void navigator.clipboard.writeText(text).then(
+          () => new import_obsidian3.Notice(`\u5DF2\u590D\u5236 ${media.length} \u4E2A\u64AD\u653E\u5668\u7684\u72B6\u6001\u5230\u526A\u8D34\u677F\uFF0C\u7C98\u8D34\u53D1\u6211\u3002`, 1e4),
+          () => new import_obsidian3.Notice(`\u590D\u5236\u5931\u8D25\uFF0C\u5185\u5BB9\uFF1A
+${text.slice(0, 400)}`, 2e4)
+        );
+      }
+    });
     this.addCommand({
       id: "transcribe-active-media",
       name: "\u6574\u7406\u5F53\u524D\u97F3\u89C6\u9891\u6587\u4EF6",

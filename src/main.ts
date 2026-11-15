@@ -1,6 +1,7 @@
 import {
   type App,
   FuzzySuggestModal,
+  MarkdownView,
   Modal,
   Notice,
   Platform,
@@ -13,6 +14,14 @@ import { AiditingApi, MAX_FILE_BYTES, type TaskView } from "./api";
 import { baseName, isMediaName, mimeOf, safeFileName } from "./media";
 import { buildNote } from "./note";
 import { obsidianTransport } from "./obsidian-transport";
+import {
+  attachSeekHandlers,
+  findPlayer,
+  inspectScope,
+  parseTimestamp,
+  seekTo,
+  setSeekNotifier,
+} from "./seek";
 import { AiditingSettingTab, DEFAULT_SETTINGS, type AiditingSettings } from "./settings";
 
 function isMedia(file: TFile): boolean {
@@ -26,6 +35,100 @@ export default class AiditingPlugin extends Plugin {
     await this.loadSettings();
 
     this.addSettingTab(new AiditingSettingTab(this.app, this));
+
+    // seek 模块跑单测时不能依赖 obsidian 模块，所以提示通道从外面注入
+    setSeekNotifier((message, ms) => new Notice(message, ms ?? 8000));
+
+    // 阅读模式：把正文里的 `00:12` 变成可点的时间点，点了跳原生播放器到该秒。
+    // 向上找预览容器，是因为嵌入的播放器和正文可能不在同一个渲染段里。
+    this.registerMarkdownPostProcessor((el) => {
+      const root = (el.closest(".markdown-preview-sizer") ??
+        el.closest(".markdown-preview-view") ??
+        el) as HTMLElement;
+      attachSeekHandlers(root);
+    });
+
+    // Live Preview（编辑视图）里，行内代码是 CodeMirror 渲染的 DOM，post processor 不跑，
+    // 所以另挂一个文档级捕获监听。故意**不** preventDefault：不能为了跳转而让人没法把光标放进代码里。
+    this.registerDomEvent(
+      document,
+      "mousedown",
+      (evt) => {
+        const target = evt.target as HTMLElement | null;
+        const code = target?.closest?.("code");
+        if (!code) return;
+        if (code.dataset.aiditingSeek === "1") return; // 阅读模式已接管，别重复触发
+        const seconds = parseTimestamp(code.textContent ?? "");
+        if (seconds === null) return;
+        const scope = code.closest(".workspace-leaf") ?? document;
+        const player = findPlayer(scope);
+        if (!player) return;
+        seekTo(player, seconds);
+      },
+      true,
+    );
+
+    // 排查用：点了没反应时，用户跑一下这个命令就能说出「模式 / 时间点 / 播放器」三件事
+    this.addCommand({
+      id: "seek-diagnostics",
+      name: "检查时间点跳转状态",
+      callback: () => {
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!view) {
+          new Notice("先打开一篇笔记，再运行这个检查。");
+          return;
+        }
+        const info = inspectScope(view.containerEl);
+        const mode = view.getMode() === "preview" ? "阅读模式" : "编辑模式（Live Preview）";
+        new Notice(
+          `模式：${mode}\n时间点：${info.timestamps} 个（已挂点击 ${info.wired} 个）\n播放器：${info.mediaCount} 个`,
+          12000,
+        );
+      },
+    });
+
+    // 排查用：seek 之后「声音跳了画面不动」时，先看这个。
+    // 重点在 seekable —— Obsidian 走 app:// 读本地文件，如果该协议不支持 Range 请求，
+    // currentTime 会被静默 clamp 到可跳范围末尾，player 不报错，画面自然不动。
+    this.addCommand({
+      id: "seek-media-dump",
+      name: "导出播放器状态（复制到剪贴板）",
+      callback: () => {
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!view) {
+          new Notice("先打开一篇笔记，再运行这个。");
+          return;
+        }
+        const media = Array.from(view.containerEl.querySelectorAll<HTMLMediaElement>("video, audio"));
+        if (media.length === 0) {
+          new Notice("这篇笔记里没有 video / audio 元素。", 8000);
+          return;
+        }
+        const range = (r: TimeRanges) => {
+          const out: string[] = [];
+          for (let i = 0; i < r.length; i += 1) out.push(`${r.start(i).toFixed(2)}-${r.end(i).toFixed(2)}`);
+          return out.length ? out.join(", ") : "(空)";
+        };
+        const lines = [`media 元素: ${media.length} 个`];
+        media.forEach((m, i) => {
+          const path = m.getAttribute("src") ?? "";
+          const r = m.getBoundingClientRect();
+          lines.push(
+            `[${i}] ${m.tagName}  currentTime=${m.currentTime.toFixed(2)}  duration=${String(m.duration)}  paused=${m.paused}`,
+            `    readyState=${m.readyState} networkState=${m.networkState} error=${m.error ? m.error.code : "none"}`,
+            `    videoWidth=${(m as HTMLVideoElement).videoWidth} videoHeight=${(m as HTMLVideoElement).videoHeight}`,
+            `    rect=${Math.round(r.width)}x${Math.round(r.height)} top=${Math.round(r.top)} 可见=${r.width > 0 && r.height > 0}`,
+            `    seekable=[${range(m.seekable)}]  buffered=[${range(m.buffered)}]`,
+            `    src=${path.slice(0, 100)}`,
+          );
+        });
+        const text = lines.join("\n");
+        void navigator.clipboard.writeText(text).then(
+          () => new Notice(`已复制 ${media.length} 个播放器的状态到剪贴板，粘贴发我。`, 10000),
+          () => new Notice(`复制失败，内容：\n${text.slice(0, 400)}`, 20000),
+        );
+      },
+    });
 
     this.addCommand({
       id: "transcribe-active-media",

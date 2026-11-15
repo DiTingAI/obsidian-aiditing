@@ -15,3 +15,15 @@
 .aiditing-path-input {
   width: 100%;
 }
+
+/* 可点的时间点：只在同一篇笔记里真的存在播放器时才会被加上这个类（见 src/seek.ts）。
+ * 没有播放器就不加，避免画出一个点了没反应的东西。 */
+.aiditing-ts {
+  cursor: pointer;
+}
+
+.aiditing-ts:hover {
+  color: var(--text-accent);
+  text-decoration: underline;
+}
+
