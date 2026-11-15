@@ -61,6 +61,76 @@ test("笔记：后端区间格式也能切章节、保留逐句时间戳（不�
   assert.match(note, /## 纯文本/);
 });
 
+test("笔记：开启嵌入时，原媒体以 Obsidian 原生嵌入出现在正文开头", () => {
+  // 2026-11-15：逐句时间点若不能在同一页对照播放器，用户核对一句话要来回切窗口，
+  // 「逐句可核对」就退化成「逐句很啰嗦」。嵌入原媒体是让这个卖点成立的前提。
+  const note = buildNote(
+    {
+      taskId: "tsk_embed",
+      status: "completed",
+      textWithTimestamp: "[00:05] 第一句",
+      text: "第一句",
+    },
+    {
+      sourceName: "讲座录音.m4a",
+      title: "讲座录音",
+      taskId: "tsk_embed",
+      apiBase: "https://api.diting.cc",
+      sectionMinutes: 10,
+      embedSource: true,
+    },
+  );
+  assert.match(note, /!\[\[讲座录音\.m4a\]\]/);
+  // 嵌入必须在正文之前，否则用户翻半天才找到播放器
+  assert.ok(note.indexOf("![[") < note.indexOf("## 正文"));
+
+  const noEmbed = buildNote(
+    { taskId: "tsk_embed", status: "completed", textWithTimestamp: "[00:05] 第一句", text: "第一句" },
+    {
+      sourceName: "讲座录音.m4a",
+      title: "讲座录音",
+      taskId: "tsk_embed",
+      apiBase: "https://api.diting.cc",
+      sectionMinutes: 10,
+    },
+  );
+  assert.doesNotMatch(noEmbed, /!\[\[/);
+});
+
+test("笔记：文件名带 wiki 链接保留字符时不嵌入（宁可不嵌，也不要坏链接）", () => {
+  for (const name of ["a[1].mp3", "a|b.mp3", "a#1.mp3"]) {
+    const note = buildNote(
+      { taskId: "tsk_bad", status: "completed", textWithTimestamp: "[00:05] 一句", text: "一句" },
+      {
+        sourceName: name,
+        title: "x",
+        taskId: "tsk_bad",
+        apiBase: "https://api.diting.cc",
+        sectionMinutes: 10,
+        embedSource: true,
+      },
+    );
+    assert.doesNotMatch(note, /!\[\[/, `${name} 不应该被嵌入`);
+  }
+});
+
+test("笔记：开头说明不再承诺「点一下时间点就跳转」", () => {
+  // 实测结论：Obsidian 不会把行内代码 `00:12` 变成可点击跳转链接。
+  // 文案必须只说事实——时间点是位置标注，回听要靠播放器时间轴。
+  const note = buildNote(
+    { taskId: "tsk_copy", status: "completed", textWithTimestamp: "[00:05] 一句", text: "一句" },
+    {
+      sourceName: "a.mp3",
+      title: "a",
+      taskId: "tsk_copy",
+      apiBase: "https://api.diting.cc",
+      sectionMinutes: 10,
+    },
+  );
+  assert.doesNotMatch(note, /点一下时间点|点回去就能听到/);
+  assert.match(note, /对照播放器的时间轴拖动即可回听/);
+});
+
 test("时长格式化：不足一小时不显示小时位", () => {
   assert.equal(formatDuration(65), "01:05");
   assert.equal(formatDuration(3750), "01:02:30");

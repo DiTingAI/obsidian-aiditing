@@ -124,6 +124,7 @@ export default class AiditingPlugin extends Plugin {
         taskId,
         apiBase: this.settings.apiBase,
         sectionMinutes: this.settings.sectionMinutes,
+        embedSource: this.settings.embedSource,
       });
 
       const proposed = this.buildPath(file);

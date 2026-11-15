@@ -302,9 +302,12 @@ function buildNote(task, meta) {
   const body = [
     "",
     "> [!warning] \u8FD9\u662F AI \u6574\u7406\u7684\u521D\u7A3F",
-    "> \u8F6C\u5199\u548C\u672F\u8BED\u7EA0\u6B63\u90FD\u53EF\u80FD\u51FA\u9519\uFF0C\u6B63\u5F0F\u5F15\u7528\u524D\u8BF7\u6838\u5BF9\u539F\u97F3\u3002\u6BCF\u6761\u90FD\u5E26\u65F6\u95F4\u70B9\uFF0C\u70B9\u56DE\u53BB\u5C31\u80FD\u542C\u5230\u539F\u8BDD\u3002",
+    "> \u8F6C\u5199\u548C\u672F\u8BED\u7EA0\u6B63\u90FD\u53EF\u80FD\u51FA\u9519\uFF0C\u6B63\u5F0F\u5F15\u7528\u524D\u8BF7\u6838\u5BF9\u539F\u97F3\u3002\u6BCF\u6761\u524D\u9762\u662F\u8FD9\u53E5\u8BDD\u5728\u539F\u59CB\u97F3\u89C6\u9891\u91CC\u7684\u65F6\u95F4\u70B9\uFF0C\u5BF9\u7167\u64AD\u653E\u5668\u7684\u65F6\u95F4\u8F74\u62D6\u52A8\u5373\u53EF\u56DE\u542C\u3002",
     ""
   ];
+  if (meta.embedSource && !/[[\]|#]/.test(meta.sourceName)) {
+    body.push(`![[${meta.sourceName}]]`, "");
+  }
   if (summary) {
     body.push("## \u6458\u8981", "", summary, "");
   }
@@ -351,7 +354,8 @@ var DEFAULT_SETTINGS = {
   targetFolder: "00-Inbox",
   sectionMinutes: 10,
   confirmBeforeWrite: true,
-  openAfterCreate: true
+  openAfterCreate: true,
+  embedSource: true
 };
 var AiditingSettingTab = class extends import_obsidian2.PluginSettingTab {
   constructor(app, plugin) {
@@ -400,6 +404,14 @@ var AiditingSettingTab = class extends import_obsidian2.PluginSettingTab {
     new import_obsidian2.Setting(containerEl).setName("\u751F\u6210\u540E\u6253\u5F00\u7B14\u8BB0").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.openAfterCreate).onChange(async (value) => {
         this.plugin.settings.openAfterCreate = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian2.Setting(containerEl).setName("\u7B14\u8BB0\u9876\u90E8\u5D4C\u5165\u539F\u5A92\u4F53").setDesc(
+      "\u628A\u539F\u97F3\u89C6\u9891\u5D4C\u8FDB\u7B14\u8BB0\uFF0C\u65B9\u4FBF\u5BF9\u7167\u9010\u53E5\u65F6\u95F4\u70B9\u62D6\u52A8\u65F6\u95F4\u8F74\u56DE\u542C\u3002\u5173\u6389\u5219\u53EA\u4FDD\u7559 frontmatter \u91CC\u7684 source \u6EAF\u6E90\u4FE1\u606F\u3002"
+    ).addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.embedSource).onChange(async (value) => {
+        this.plugin.settings.embedSource = value;
         await this.plugin.saveSettings();
       })
     );
@@ -496,7 +508,8 @@ var AiditingPlugin = class extends import_obsidian3.Plugin {
         title: safeFileName(baseName(file.name)),
         taskId,
         apiBase: this.settings.apiBase,
-        sectionMinutes: this.settings.sectionMinutes
+        sectionMinutes: this.settings.sectionMinutes,
+        embedSource: this.settings.embedSource
       });
       const proposed = this.buildPath(file);
       const target = this.settings.confirmBeforeWrite ? await this.confirmPath(proposed) : proposed;

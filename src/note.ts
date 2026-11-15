@@ -19,6 +19,16 @@ export interface NoteMeta {
   apiBase: string;
   /** 章节切分间隔，0 表示不切 */
   sectionMinutes: number;
+  /**
+   * 是否在笔记顶部嵌入原媒体（Obsidian 原生播放器）。
+   *
+   * 为什么需要它：逐句时间点只是「位置标注」，Obsidian 并没有把 `00:12` 这种行内代码
+   * 变成可点击的跳转链接（见 tests 里对语法的实测结论）。没有播放器在同一个页面里，
+   * 用户核对一句话要来回切窗口、手动拖时间轴——「逐句可核对」就退化成了「逐句很啰嗦」。
+   *
+   * 默认由调用方（设置项）显式开启，纯函数层不自己决定。
+   */
+  embedSource?: boolean;
 }
 
 export interface TimedLine {
@@ -136,9 +146,15 @@ export function buildNote(task: TaskView, meta: NoteMeta): string {
   const body: string[] = [
     "",
     "> [!warning] 这是 AI 整理的初稿",
-    "> 转写和术语纠正都可能出错，正式引用前请核对原音。每条都带时间点，点回去就能听到原话。",
+    "> 转写和术语纠正都可能出错，正式引用前请核对原音。每条前面是这句话在原始音视频里的时间点，对照播放器的时间轴拖动即可回听。",
     "",
   ];
+
+  // 原媒体嵌入：逐句时间点只有在同一页能看到时间轴时才有核对价值。
+  // 文件名里带 | # [ ] 会破坏 wiki 链接语法，这种情况宁可不嵌，也不要生成一个坏链接。
+  if (meta.embedSource && !/[[\]|#]/.test(meta.sourceName)) {
+    body.push(`![[${meta.sourceName}]]`, "");
+  }
 
   if (summary) {
     body.push("## 摘要", "", summary, "");

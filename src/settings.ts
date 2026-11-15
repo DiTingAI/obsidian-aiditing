@@ -17,6 +17,13 @@ export interface AiditingSettings {
   confirmBeforeWrite: boolean;
   /** 生成后自动打开笔记 */
   openAfterCreate: boolean;
+  /**
+   * 在笔记顶部嵌入原媒体的原生播放器（默认开）。
+   *
+   * 逐句时间点只是位置标注，Obsidian 不会把 `00:12` 变成可点击跳转；
+   * 同一页放一个播放器，用户才能「看一句、拖一下、听一句」地把稿子核对完。
+   */
+  embedSource: boolean;
 }
 
 export const DEFAULT_SETTINGS: AiditingSettings = {
@@ -26,6 +33,7 @@ export const DEFAULT_SETTINGS: AiditingSettings = {
   sectionMinutes: 10,
   confirmBeforeWrite: true,
   openAfterCreate: true,
+  embedSource: true,
 };
 
 export class AiditingSettingTab extends PluginSettingTab {
@@ -122,6 +130,18 @@ export class AiditingSettingTab extends PluginSettingTab {
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.settings.openAfterCreate).onChange(async (value) => {
           this.plugin.settings.openAfterCreate = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("笔记顶部嵌入原媒体")
+      .setDesc(
+        "把原音视频嵌进笔记，方便对照逐句时间点拖动时间轴回听。关掉则只保留 frontmatter 里的 source 溯源信息。",
+      )
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.embedSource).onChange(async (value) => {
+          this.plugin.settings.embedSource = value;
           await this.plugin.saveSettings();
         }),
       );
