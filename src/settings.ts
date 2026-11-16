@@ -1,5 +1,7 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
+import type { SettingDefinitionItem } from "obsidian";
 import type AiditingPlugin from "./main";
+import { normalizeSettingValue, validateSetting, type SettingKey } from "./settings-values";
 
 /** 工作台：用户在这里登录并创建 API Key，与网页端共用同一个 Key */
 // 对外链接必须带归因参数（项目铁律第八节）。obsidian 已于 2026-11-15 登记进白名单，
@@ -46,6 +48,108 @@ export class AiditingSettingTab extends PluginSettingTab {
     super(app, plugin);
   }
 
+  /**
+   * 声明式设置（Obsidian 1.13+）。
+   *
+   * 为什么必须实现它：社区审核 2026-11-16 的那条 Warning 原话是
+   * 「This PluginSettingTab does not implement getSettingDefinitions(); its settings will not
+   * appear in Obsidian's settings search for users on 1.13.0 or later」——
+   * 也就是说只实现 display() 的插件，用户在新版设置里搜「API Key」什么都搜不到。
+   *
+   * 为什么 display() 还要留着：manifest 的 minAppVersion 是 1.8.7，旧版本根本不调这个方法，
+   * 只会渲染 display()。官方文档也建议把 display() 留作旧版本的降级路径
+   * （"Only implement display() as a fallback for plugins that need to support Obsidian
+   * versions older than 1.13.0"）。
+   *
+   * **两处文案必须一致**：改这里的名字/说明，就要同步改 display() 里对应的那一行，
+   * 否则 1.12 和 1.13 的用户看到的是两套说法。
+   */
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    return [
+      {
+        name: "API Key",
+        desc: "在爱谛听工作台登录后创建（免费额度每月 30 分钟）。没有 Key 时插件不会上传任何文件。",
+        control: { type: "text", key: "apiKey", placeholder: "sk-diting-..." },
+      },
+      {
+        name: "还没有 Key？两步搞定",
+        desc: "① 点「去创建」，在工作台登录后创建 Key 并复制 → ② 回来点「从剪贴板读取」，Key 会自动填到上面。",
+        // 声明式渲染给的是一行空 Setting，正好把两个按钮挂上去；
+        // 不用 action 类型：那会让整行变成可点击区域，用户点说明文字也会跳走。
+        render: (setting) => {
+          setting.addButton((button) =>
+            button.setButtonText("去创建").setCta().onClick(() => {
+              window.open(CONSOLE_URL, "_blank");
+            }),
+          );
+          setting.addButton((button) =>
+            button.setButtonText("从剪贴板读取").onClick(async () => {
+              // update() 重读 getControlValue，输入框才会显示刚粘进来的 Key
+              if (await this.plugin.applyApiKeyFromClipboard()) this.update();
+            }),
+          );
+        },
+      },
+      {
+        name: "API 地址",
+        desc: "默认 https://api.diting.cc。除非我们另行通知，不要改这里。",
+        control: {
+          type: "text",
+          key: "apiBase",
+          placeholder: "https://api.diting.cc",
+          // 填错会让所有请求打到不存在的地址，用户看到的只是「请求失败」——这里挡一下比事后排查便宜
+          validate: (value) => validateSetting("apiBase", value),
+        },
+      },
+      {
+        name: "笔记落库目录",
+        desc: "生成的 Markdown 写到这里。目录不存在会自动创建；只新增文件，不改已有笔记。",
+        control: { type: "text", key: "targetFolder", placeholder: "00-Inbox" },
+      },
+      {
+        name: "章节切分间隔（分钟）",
+        desc: "按时间戳每 N 分钟切一个小节，标题取该段第一句。填 0 则不切章节。",
+        control: { type: "number", key: "sectionMinutes", placeholder: "10", min: 0 },
+      },
+      {
+        name: "写入前确认路径",
+        desc: "仅本地上传生效：落盘前显示最终路径，点确认才写。链接转写不弹窗（可能一次写多篇），默认写入 00-Inbox，重名自动加序号，不会覆盖已有笔记。",
+        control: { type: "toggle", key: "confirmBeforeWrite" },
+      },
+      {
+        name: "生成后打开笔记",
+        control: { type: "toggle", key: "openAfterCreate" },
+      },
+      {
+        name: "笔记顶部嵌入原媒体",
+        desc: "把原音视频嵌进笔记，方便对照逐句时间点拖动时间轴回听。关掉则只保留 frontmatter 里的 source 溯源信息。",
+        control: { type: "toggle", key: "embedSource" },
+      },
+      {
+        name: "关于耗时与初稿",
+        desc: "整理结果是一份可改的初稿，不是终稿；实际耗时取决于文件时长、网络与当前队列，插件不显示预计完成时间。",
+      },
+    ];
+  }
+
+  /** 声明式控件读值：映射到插件自己的设置对象（不走 Obsidian 的 vault config） */
+  getControlValue(key: string): unknown {
+    return (this.plugin.settings as unknown as Record<string, unknown>)[key];
+  }
+
+  /** 声明式控件写值：清洗 → 落内存 → 落盘 */
+  setControlValue(key: string, value: unknown): void | Promise<void> {
+    const store = this.plugin.settings as unknown as Record<string, unknown>;
+    // 拼错的 key 不能静默写进去：那只会给设置对象留一堆没人读的垃圾字段
+    if (!(key in store)) return;
+    store[key] = normalizeSettingValue(key as SettingKey, value);
+    return this.plugin.saveSettings();
+  }
+
+  /**
+   * 旧版（< 1.13.0）的渲染路径。
+   * 1.13+ 只要 getSettingDefinitions() 返回非空数组，这个方法就不会被调用。
+   */
   display(): void {
     const { containerEl } = this;
     containerEl.empty();

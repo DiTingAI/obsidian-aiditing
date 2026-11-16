@@ -1,7 +1,7 @@
 {
   "id": "aiditing",
   "name": "AiDiTing",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "minAppVersion": "1.8.7",
   "description": "Turn audio/video files in your vault, or Bilibili / Douyin / Xiaohongshu links, into timestamped, chaptered Markdown notes. Only creates new notes; never modifies existing ones.",
   "author": "AiDiTing",
