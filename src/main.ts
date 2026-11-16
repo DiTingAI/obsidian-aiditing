@@ -13,6 +13,7 @@ import {
 import {
   AiditingApi,
   MAX_FILE_BYTES,
+  matchPart,
   type PlatformCheckResult,
   type PlatformPart,
   type TaskView,
@@ -385,15 +386,17 @@ export default class AiditingPlugin extends Plugin {
     const progress = new Notice(`正在提交到 ${platformLabel(match.platform)}…`, 0);
 
     try {
-      const ids = await api.submitPlatform(match, parts);
+      const { taskIds: ids, fileNames } = await api.submitPlatform(match, parts);
       if (ids.length === 0) {
         throw new Error("提交成功但没拿到任务号，请把链接反馈给我们。");
       }
 
       const written: string[] = [];
       for (let i = 0; i < ids.length; i += 1) {
-        const part = parts[i];
-        const label = parts.length > 1 ? `（${i + 1}/${ids.length}）` : "";
+        // 不能按索引取 parts[i]：服务端并发建任务、失败会跳过，索引会把第 3 集的正文
+        // 写成第 1 集的标题和链接（时间点还跳到错误的 P）。改为按服务端返回的文件名反查。
+        const part = matchPart(parts, fileNames[i], i);
+        const label = ids.length > 1 ? `（${i + 1}/${ids.length}）` : "";
         progress.setMessage(`已提交${label}，等待整理…`);
 
         const task = await api.waitForTask(ids[i], (t) => {
@@ -402,7 +405,7 @@ export default class AiditingPlugin extends Plugin {
 
         if (task.status !== "completed") {
           new Notice(
-            `第 ${i + 1} 集整理失败：${task.errorMessage ?? task.status}。额度不受影响。`,
+            `${part?.title || `第 ${i + 1} 集`} 整理失败：${task.errorMessage ?? task.status}。额度不受影响。`,
             12000,
           );
           continue;

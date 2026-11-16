@@ -10,6 +10,8 @@
 #   GITHUB_TOKEN=ghp_xxx ./scripts/release-obsidian.sh            # 构建 + 发布
 #   ./scripts/release-obsidian.sh --dry-run                      # 只构建校验，不碰远端
 #   ./scripts/release-obsidian.sh --skip-build                   # 复用已有 main.js
+#   ./scripts/release-obsidian.sh --api-sync                     # 跳过 clone，直接走 GitHub API 同步
+#                                                                 # （本机 github.com:443 不通时用，省掉 3×75s 的等超时）
 #
 # 前置条件（缺一不可，脚本会逐个检查并给出人话提示）：
 #   1. GITHUB_TOKEN 有 DiTingAI/obsidian-aiditing 的 contents:write 权限；
@@ -26,12 +28,14 @@ API="https://api.github.com/repos/${REPO}"
 TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
 DRY_RUN=0
 SKIP_BUILD=0
+API_SYNC=0
 
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=1 ;;
     --skip-build) SKIP_BUILD=1 ;;
-    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+    --api-sync) API_SYNC=1 ;;
+    -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
     *) echo "未知参数：$arg"; exit 1 ;;
   esac
 done
@@ -115,17 +119,22 @@ except Exception:
 " 2>/dev/null || echo 0)
 
 CLONED=0
-for attempt in 1 2 3; do
-  if git clone --quiet --depth 1 "https://x-access-token:${TOKEN}@github.com/${REPO}.git" "$WORK/repo" 2>"$WORK/clone.err"; then
-    CLONED=1
-    break
-  fi
-  rm -rf "$WORK/repo"
-  if [ "$attempt" -lt 3 ]; then
-    say "clone 失败（第 ${attempt} 次），2 秒后重试"
-    sleep 2
-  fi
-done
+if [ "$API_SYNC" -eq 1 ]; then
+  # github.com:443 不通时 clone 只会白等 3×75s 再降级，结果一样。这个开关让用户直接跳过那段。
+  say "按 --api-sync 跳过 clone，直接走 GitHub API 同步"
+else
+  for attempt in 1 2 3; do
+    if git clone --quiet --depth 1 "https://x-access-token:${TOKEN}@github.com/${REPO}.git" "$WORK/repo" 2>"$WORK/clone.err"; then
+      CLONED=1
+      break
+    fi
+    rm -rf "$WORK/repo"
+    if [ "$attempt" -lt 3 ]; then
+      say "clone 失败（第 ${attempt} 次），2 秒后重试"
+      sleep 2
+    fi
+  done
+fi
 
 # 同步方式：clone 通了走 git；clone 不通但远端已有内容时改走 GitHub API。
 # 理由见 scripts/sync-release-via-api.mjs 顶部注释：某些网络下 git 的长连接会断
@@ -141,7 +150,10 @@ if [ "$CLONED" -eq 0 ]; then
     git -C "$WORK/repo" remote add origin "https://x-access-token:${TOKEN}@github.com/${REPO}.git"
     git -C "$WORK/repo" checkout -q -b main
   else
-    sed -e "s|${TOKEN}|***|g" "$WORK/clone.err" | head -5 >&2
+    # --api-sync 时根本没有 clone.err（没跑过 clone），不能无条件 sed
+    if [ -s "$WORK/clone.err" ]; then
+      sed -e "s|${TOKEN}|***|g" "$WORK/clone.err" | head -5 >&2 || true
+    fi
     say "clone 不通，改走 GitHub API 同步仓库文件（Release 与资产不受影响）"
     SYNC_MODE="api"
   fi

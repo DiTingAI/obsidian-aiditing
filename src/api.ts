@@ -306,12 +306,17 @@ export class AiditingApi {
   }
 
   /**
-   * 提交转写，返回任务号数组。
+   * 提交转写，返回任务号数组与同序的文件名。
    *
-   * 响应形状不同：B站是 `data.task_ids[]`，抖音/小红书是单个 `data.task_id`。
+   * 响应形状不同：B站是 `data.task_ids[]` + `data.file_names[]`，抖音/小红书是单个 `data.task_id`。
    * 统一成数组，上层就能一次提交多P再逐个轮询。
+   *
+   * **为什么要把 file_names 一起返回**：服务端是多 goroutine 并发建任务的（services/video_service.go），
+   * `task_ids` 的 append 顺序取决于谁先跑完，不等于提交顺序；失败的那几集也不会出现在 `task_ids` 里。
+   * 上层若按索引 `parts[i]` 配对，就会把第 3 集的正文写成第 1 集的标题和链接，时间点还跳到错误的 P。
+   * `file_names` 与 `task_ids` 在同一个锁内成对 append，是唯一可靠的对应关系。
    */
-  async submitPlatform(match: PlatformMatch, parts: PlatformPart[]): Promise<string[]> {
+  async submitPlatform(match: PlatformMatch, parts: PlatformPart[]): Promise<SubmitResult> {
     if (parts.length === 0) throw new Error("没有选中任何一集。");
 
     if (match.platform === "bilibili") {
@@ -328,8 +333,11 @@ export class AiditingApi {
       const data = (await this.postJson(`/v1/transcriptions/bilibili`, { videos })) as
         | Record<string, unknown>
         | null;
-      const ids = data?.task_ids;
-      return Array.isArray(ids) ? ids.map((v) => String(v)) : [];
+
+      return {
+        taskIds: toStringList(data?.task_ids),
+        fileNames: toStringList(data?.file_names),
+      };
     }
 
     const part = parts[0];
@@ -342,8 +350,44 @@ export class AiditingApi {
     })) as Record<string, unknown> | null;
 
     const id = data?.task_id;
-    return typeof id === "string" ? [id] : [];
+    return {
+      taskIds: typeof id === "string" ? [id] : [],
+      fileNames: typeof data?.file_name === "string" ? [data.file_name] : [],
+    };
   }
+}
+
+/** 提交结果：任务号与文件名同序（见 submitPlatform 的注释） */
+export interface SubmitResult {
+  taskIds: string[];
+  fileNames: string[];
+}
+
+function toStringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((v) => String(v)) : [];
+}
+
+/** 已知的媒体扩展名；只切这些，避免把「第 1.P」这种标题误削成「第 1」 */
+const MEDIA_EXT_RE = /\.(mp4|m4a|mp3|webm|flv|mkv|wav|aac|mov|avi|m4v)$/i;
+
+/**
+ * 把服务端返回的任务还原到用户勾选的那一集。
+ *
+ * 优先用文件名反查（服务端的 FileName 就是 `title + ".mp4"`）；
+ * 拿不到文件名（旧后端 / 单条平台）时才退回索引——退回索引是**降级**，不是等价方案：
+ * 服务端并发建任务，索引对不上的概率随集数上升。
+ */
+export function matchPart(
+  parts: PlatformPart[],
+  fileName: string | undefined,
+  index: number,
+): PlatformPart | undefined {
+  if (fileName) {
+    const stem = fileName.replace(MEDIA_EXT_RE, "");
+    const hit = parts.find((p) => p.title === stem || p.title === fileName);
+    if (hit) return hit;
+  }
+  return parts[index];
 }
 
 /** 状态接口返回的是标准结构，上传接口多套一层（实测 2026-11-13），两层都要扫 */
@@ -401,13 +445,27 @@ function pickMessage(payload: unknown): string | undefined {
   const p = payload as Record<string, unknown>;
   for (const key of ["message", "msg", "error", "detail"]) {
     const v = p[key];
-    if (typeof v === "string" && v) return v;
+    if (typeof v === "string" && v) return redactSecrets(v);
   }
   return undefined;
 }
 
 function describe(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  return redactSecrets(err instanceof Error ? err.message : String(err));
+}
+
+/**
+ * 把文本里形如 API Key 的片段抹掉。
+ *
+ * 为什么需要它：Key 只该出现在 Authorization 头里。但错误信息是从服务端原样透传的，
+ * 一旦后端（或网关/代理）把请求头回显进 message，这条 Key 就会跟着 Notice 显示在界面上、
+ * 被用户截图发进群里、被粘贴进 issue——那就是一次「Key 上报」。
+ * 插件这一侧能做的最稳的事：凡是往外抛的文案，先过一遍脱敏。
+ */
+const SECRET_RE = /sk-[A-Za-z0-9_-]{8,}/g;
+
+export function redactSecrets(text: string): string {
+  return text.replace(SECRET_RE, "sk-***");
 }
 
 /**

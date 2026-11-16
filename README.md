@@ -31,6 +31,8 @@ This plugin uploads the file you select (or the platform link you paste) to `api
 - What it is used for: producing the transcript and the note for that one task.
 - Not used for model training, not resold, not shared with third parties.
 - **Without an API key nothing is uploaded at all** — the plugin only reads files locally.
+- Your API key stays on your machine (plugin settings). It is sent only in the `Authorization` header to our own API — never in a URL, never logged, never shared with third parties. Our server stores only a hash and a short prefix of it.
+- **No analytics.** The plugin sends no telemetry. Our server only sees that a task was submitted from the plugin (the `client` field on the task row) for quota accounting and troubleshooting; it never records which notes you open.
 - It never reads the content of your other notes. To list transcribable files it enumerates vault paths (`vault.getFiles`) and filters by extension only.
 
 ## Install
@@ -90,6 +92,8 @@ License: MIT (see [LICENSE](./LICENSE)). The `main.js` in this repository is a b
 | 会不会用来训练模型 | **不会** |
 | 会不会转发给别人 | **不会**，不做二次分发 |
 | 没配 Key 会不会上传 | **不会**。没有 Key 时插件一个字节都不发，只在本地读文件 |
+| API Key 存在哪、怎么发 | 只存在你本机的插件配置里。请求时放进 `Authorization` 头发给我们自己的 API，**不写进 URL、不写进日志、不发第三方**；服务端只存哈希与前后缀，库里没有明文 |
+| 会不会统计我的使用行为 | **不做任何行为埋点**。插件不向任何第三方发送统计。我们服务器只知道「有一个任务是通过插件提交的」（任务表的 `client` 字段），用于算额度与排查问题，不记录你打开了哪些笔记 |
 | 会不会翻看我的其他笔记 | **不读内容**。为了在选文件时列出可转写的音视频，插件会枚举 vault 内的文件路径（Obsidian 的 `vault.getFiles`），但只按扩展名挑出音视频，不打开、不解析、不上传任何你没选中的文件 |
 | 想删掉已经上传的数据 | 联系客服提出，我们处理 |
 

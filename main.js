@@ -245,10 +245,15 @@ Content-Type: ${mime}\r
     };
   }
   /**
-   * 提交转写，返回任务号数组。
+   * 提交转写，返回任务号数组与同序的文件名。
    *
-   * 响应形状不同：B站是 `data.task_ids[]`，抖音/小红书是单个 `data.task_id`。
+   * 响应形状不同：B站是 `data.task_ids[]` + `data.file_names[]`，抖音/小红书是单个 `data.task_id`。
    * 统一成数组，上层就能一次提交多P再逐个轮询。
+   *
+   * **为什么要把 file_names 一起返回**：服务端是多 goroutine 并发建任务的（services/video_service.go），
+   * `task_ids` 的 append 顺序取决于谁先跑完，不等于提交顺序；失败的那几集也不会出现在 `task_ids` 里。
+   * 上层若按索引 `parts[i]` 配对，就会把第 3 集的正文写成第 1 集的标题和链接，时间点还跳到错误的 P。
+   * `file_names` 与 `task_ids` 在同一个锁内成对 append，是唯一可靠的对应关系。
    */
   async submitPlatform(match, parts) {
     if (parts.length === 0) throw new Error("\u6CA1\u6709\u9009\u4E2D\u4EFB\u4F55\u4E00\u96C6\u3002");
@@ -266,8 +271,10 @@ Content-Type: ${mime}\r
         };
       });
       const data2 = await this.postJson(`/v1/transcriptions/bilibili`, { videos });
-      const ids = data2 == null ? void 0 : data2.task_ids;
-      return Array.isArray(ids) ? ids.map((v) => String(v)) : [];
+      return {
+        taskIds: toStringList(data2 == null ? void 0 : data2.task_ids),
+        fileNames: toStringList(data2 == null ? void 0 : data2.file_names)
+      };
     }
     const part = parts[0];
     const data = await this.postJson(`/v1/transcriptions/${platformEndpoint(match.platform)}`, {
@@ -278,9 +285,24 @@ Content-Type: ${mime}\r
       ...part.thumbnail ? { thumbnail: part.thumbnail } : {}
     });
     const id = data == null ? void 0 : data.task_id;
-    return typeof id === "string" ? [id] : [];
+    return {
+      taskIds: typeof id === "string" ? [id] : [],
+      fileNames: typeof (data == null ? void 0 : data.file_name) === "string" ? [data.file_name] : []
+    };
   }
 };
+function toStringList(value) {
+  return Array.isArray(value) ? value.map((v) => String(v)) : [];
+}
+var MEDIA_EXT_RE = /\.(mp4|m4a|mp3|webm|flv|mkv|wav|aac|mov|avi|m4v)$/i;
+function matchPart(parts, fileName, index) {
+  if (fileName) {
+    const stem = fileName.replace(MEDIA_EXT_RE, "");
+    const hit = parts.find((p) => p.title === stem || p.title === fileName);
+    if (hit) return hit;
+  }
+  return parts[index];
+}
 function extractTaskId(payload) {
   const data = payload == null ? void 0 : payload.data;
   if (!data) return void 0;
@@ -327,12 +349,16 @@ function pickMessage(payload) {
   const p = payload;
   for (const key of ["message", "msg", "error", "detail"]) {
     const v = p[key];
-    if (typeof v === "string" && v) return v;
+    if (typeof v === "string" && v) return redactSecrets(v);
   }
   return void 0;
 }
 function describe(err) {
-  return err instanceof Error ? err.message : String(err);
+  return redactSecrets(err instanceof Error ? err.message : String(err));
+}
+var SECRET_RE = /sk-[A-Za-z0-9_-]{8,}/g;
+function redactSecrets(text) {
+  return text.replace(SECRET_RE, "sk-***");
 }
 function sleep(ms) {
   return delay(ms);
@@ -1079,21 +1105,21 @@ ${text.slice(0, 400)}`, 2e4)
     const api = new AiditingApi(this.settings.apiBase, this.settings.apiKey, obsidianTransport);
     const progress = new import_obsidian3.Notice(`\u6B63\u5728\u63D0\u4EA4\u5230 ${platformLabel(match.platform)}\u2026`, 0);
     try {
-      const ids = await api.submitPlatform(match, parts);
+      const { taskIds: ids, fileNames } = await api.submitPlatform(match, parts);
       if (ids.length === 0) {
         throw new Error("\u63D0\u4EA4\u6210\u529F\u4F46\u6CA1\u62FF\u5230\u4EFB\u52A1\u53F7\uFF0C\u8BF7\u628A\u94FE\u63A5\u53CD\u9988\u7ED9\u6211\u4EEC\u3002");
       }
       const written = [];
       for (let i = 0; i < ids.length; i += 1) {
-        const part = parts[i];
-        const label = parts.length > 1 ? `\uFF08${i + 1}/${ids.length}\uFF09` : "";
+        const part = matchPart(parts, fileNames[i], i);
+        const label = ids.length > 1 ? `\uFF08${i + 1}/${ids.length}\uFF09` : "";
         progress.setMessage(`\u5DF2\u63D0\u4EA4${label}\uFF0C\u7B49\u5F85\u6574\u7406\u2026`);
         const task = await api.waitForTask(ids[i], (t) => {
           progress.setMessage(`\u6574\u7406\u4E2D${label} ${describeTask(t)}`);
         });
         if (task.status !== "completed") {
           new import_obsidian3.Notice(
-            `\u7B2C ${i + 1} \u96C6\u6574\u7406\u5931\u8D25\uFF1A${(_a = task.errorMessage) != null ? _a : task.status}\u3002\u989D\u5EA6\u4E0D\u53D7\u5F71\u54CD\u3002`,
+            `${(part == null ? void 0 : part.title) || `\u7B2C ${i + 1} \u96C6`} \u6574\u7406\u5931\u8D25\uFF1A${(_a = task.errorMessage) != null ? _a : task.status}\u3002\u989D\u5EA6\u4E0D\u53D7\u5F71\u54CD\u3002`,
             12e3
           );
           continue;
