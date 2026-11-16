@@ -16,6 +16,13 @@
   width: 100%;
 }
 
+/* 首次使用引导的 Notice：整条可点（点了打开工作台）。
+ * 以前是 noticeEl.style.cursor = "pointer" 直接写内联样式，被社区目录的
+ * no-static-styles-assignment 判为 Error，改为走这个类。 */
+.aiditing-notice-link {
+  cursor: pointer;
+}
+
 /* 可点的时间点：只在同一篇笔记里真的存在播放器时才会被加上这个类（见 src/seek.ts）。
  * 没有播放器就不加，避免画出一个点了没反应的东西。 */
 .aiditing-ts {
@@ -25,5 +32,15 @@
 .aiditing-ts:hover {
   color: var(--text-accent);
   text-decoration: underline;
+}
+
+/* 链接转写弹窗里的分P 行：复选框与标题对齐，长标题不撑破弹窗。
+ * P 数多的时候要能一路滚下去，所以用 flex + 正常换行，不写死高度。 */
+.aiditing-part-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 2px 0;
+  line-height: 1.5;
 }
 

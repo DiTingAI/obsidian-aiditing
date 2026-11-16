@@ -30,9 +30,40 @@ __export(main_exports, {
 module.exports = __toCommonJS(main_exports);
 var import_obsidian3 = require("obsidian");
 
+// src/timer.ts
+function delay(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(() => resolve(), ms);
+  });
+}
+
 // src/api.ts
 var MAX_FILE_BYTES = 200 * 1024 * 1024;
 var UPLOAD_TIMEOUT_NOTE = "\u4E0A\u4F20\u4E2D\u65AD\u3002\u68C0\u67E5\u7F51\u7EDC\u540E\u91CD\u8BD5\uFF0C\u6216\u5148\u7528\u7F51\u9875\u5165\u53E3\u786E\u8BA4 Key \u662F\u5426\u53EF\u7528\u3002";
+function platformEndpoint(platform) {
+  return platform;
+}
+var CLIENT_HEADER = "X-Aiditing-Client";
+var CLIENT_NAME = "obsidian";
+function toSeconds(text) {
+  const t = text.trim();
+  if (!t) return 0;
+  if (t.includes(":")) {
+    const parts = t.split(":").map((n2) => Number(n2));
+    if (parts.some((n2) => Number.isNaN(n2))) return 0;
+    return parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : parts[0] * 60 + parts[1];
+  }
+  const n = Number(t);
+  return Number.isFinite(n) ? n : 0;
+}
+function secondsToText(total) {
+  const s = Math.max(0, Math.floor(total));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor(s % 3600 / 60);
+  const sec = s % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  return h > 0 ? `${pad(h)}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`;
+}
 var AiditingApi = class {
   constructor(base, key, send) {
     this.base = base;
@@ -70,7 +101,8 @@ Content-Type: ${mime}\r
         method: "POST",
         headers: {
           Authorization: `Bearer ${this.key}`,
-          "Content-Type": `multipart/form-data; boundary=${boundary}`
+          "Content-Type": `multipart/form-data; boundary=${boundary}`,
+          [CLIENT_HEADER]: CLIENT_NAME
         },
         body: body.buffer
       });
@@ -90,7 +122,10 @@ Content-Type: ${mime}\r
     const res = await this.send({
       url: `${this.base}/v1/transcriptions/${encodeURIComponent(taskId)}`,
       method: "GET",
-      headers: { Authorization: `Bearer ${this.key}` }
+      headers: {
+        Authorization: `Bearer ${this.key}`,
+        [CLIENT_HEADER]: CLIENT_NAME
+      }
     });
     const payload = parseJson(res.text);
     if (res.status === 404) throw new Error("\u4EFB\u52A1\u4E0D\u5B58\u5728\u6216\u5DF2\u8FC7\u671F\uFF0C\u8BF7\u91CD\u65B0\u6574\u7406\u8FD9\u4E00\u6BB5\u3002");
@@ -123,6 +158,125 @@ Content-Type: ${mime}\r
       }
       await sleep(intervalMs);
     }
+  }
+  /** POST JSON，返回统一的 data 字段 */
+  async postJson(path, body) {
+    var _a;
+    const res = await this.send({
+      url: `${this.base}${path}`,
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.key}`,
+        "Content-Type": "application/json",
+        [CLIENT_HEADER]: CLIENT_NAME
+      },
+      body: new TextEncoder().encode(JSON.stringify(body)).buffer
+    });
+    const payload = parseJson(res.text);
+    if (res.status < 200 || res.status >= 300) {
+      throw new Error((_a = pickMessage(payload)) != null ? _a : `\u8BF7\u6C42\u5931\u8D25\uFF08HTTP ${res.status}\uFF09`);
+    }
+    return payload == null ? void 0 : payload.data;
+  }
+  /**
+   * 链接预检：拿到标题、时长、多P列表。
+   *
+   * 三种平台响应结构不同，这里统一成 `parts[]`，上层只处理这一种形状：
+   * - B站：`parts[]`（多P），时长是字符串 "MM:SS"
+   * - 抖音/小红书：单条，时长是整数秒
+   */
+  async checkPlatform(match) {
+    var _a, _b;
+    const data = await this.postJson(
+      `/v1/transcriptions/${platformEndpoint(match.platform)}/check`,
+      { video_url: match.url }
+    );
+    if (!data) throw new Error("\u68C0\u67E5\u94FE\u63A5\u65F6\u6CA1\u6709\u62FF\u5230\u6570\u636E\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002");
+    const title = typeof data.title === "string" ? data.title : "";
+    if (match.platform === "bilibili") {
+      const raw = Array.isArray(data.parts) ? data.parts : [];
+      const parts = raw.map((item, index) => {
+        var _a2, _b2, _c;
+        const o = item != null ? item : {};
+        const durationText = String((_a2 = o.duration) != null ? _a2 : "");
+        return {
+          url: String((_b2 = o.url) != null ? _b2 : match.url),
+          title: String((_c = o.title) != null ? _c : `\u7B2C${index + 1}P`),
+          seconds: toSeconds(durationText),
+          durationText,
+          page: index + 1,
+          thumbnail: typeof o.thumbnail === "string" ? o.thumbnail : void 0,
+          bvid: typeof o.bvid === "string" ? o.bvid : match.bvid,
+          aid: typeof o.aid === "number" ? o.aid : void 0,
+          cid: typeof o.cid === "number" ? o.cid : void 0
+        };
+      });
+      if (parts.length === 0) {
+        const durationText = String((_a = data.duration) != null ? _a : "");
+        parts.push({
+          url: match.url,
+          title: title || "\u672A\u547D\u540D\u89C6\u9891",
+          seconds: toSeconds(durationText),
+          durationText,
+          page: 1,
+          thumbnail: typeof data.thumbnail === "string" ? data.thumbnail : void 0,
+          bvid: match.bvid
+        });
+      }
+      return { platform: "bilibili", title, parts };
+    }
+    const seconds = Number((_b = data.duration) != null ? _b : 0);
+    const safeSeconds = Number.isFinite(seconds) ? seconds : 0;
+    return {
+      platform: match.platform,
+      title,
+      parts: [
+        {
+          url: typeof data.video_url_resolved === "string" ? data.video_url_resolved : match.url,
+          title: title || "\u672A\u547D\u540D\u89C6\u9891",
+          seconds: safeSeconds,
+          durationText: secondsToText(safeSeconds),
+          page: 1,
+          thumbnail: typeof data.cover === "string" ? data.cover : void 0
+        }
+      ]
+    };
+  }
+  /**
+   * 提交转写，返回任务号数组。
+   *
+   * 响应形状不同：B站是 `data.task_ids[]`，抖音/小红书是单个 `data.task_id`。
+   * 统一成数组，上层就能一次提交多P再逐个轮询。
+   */
+  async submitPlatform(match, parts) {
+    if (parts.length === 0) throw new Error("\u6CA1\u6709\u9009\u4E2D\u4EFB\u4F55\u4E00\u96C6\u3002");
+    if (match.platform === "bilibili") {
+      const videos = parts.map((p) => {
+        var _a;
+        return {
+          url: p.url,
+          title: p.title,
+          // B站要求字符串时长，缺了直接 400
+          duration: p.durationText,
+          thumbnail: (_a = p.thumbnail) != null ? _a : "",
+          ...p.aid !== void 0 ? { aid: p.aid } : {},
+          ...p.cid !== void 0 ? { cid: p.cid } : {}
+        };
+      });
+      const data2 = await this.postJson(`/v1/transcriptions/bilibili`, { videos });
+      const ids = data2 == null ? void 0 : data2.task_ids;
+      return Array.isArray(ids) ? ids.map((v) => String(v)) : [];
+    }
+    const part = parts[0];
+    const data = await this.postJson(`/v1/transcriptions/${platformEndpoint(match.platform)}`, {
+      video_url: part.url,
+      title: part.title,
+      // 抖音/小红书要整数秒
+      duration: Math.max(0, Math.floor(part.seconds)),
+      ...part.thumbnail ? { thumbnail: part.thumbnail } : {}
+    });
+    const id = data == null ? void 0 : data.task_id;
+    return typeof id === "string" ? [id] : [];
   }
 };
 function extractTaskId(payload) {
@@ -179,10 +333,7 @@ function describe(err) {
   return err instanceof Error ? err.message : String(err);
 }
 function sleep(ms) {
-  return new Promise((resolve) => {
-    const schedule = typeof window !== "undefined" ? window.setTimeout.bind(window) : globalThis.setTimeout;
-    schedule(() => resolve(), ms);
-  });
+  return delay(ms);
 }
 
 // src/media.ts
@@ -221,6 +372,66 @@ function safeFileName(name) {
   return name.replace(/[\\/:*?"<>|#^[\]]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "\u672A\u547D\u540D";
 }
 
+// src/platform.ts
+var BVID_RE = /BV[0-9A-Za-z]{10}/;
+var URL_RE = /https?:\/\/[^\s，,、。；;"'）)]+/;
+var HOSTS = [
+  { platform: "bilibili", hosts: ["bilibili.com", "b23.tv"] },
+  { platform: "douyin", hosts: ["douyin.com", "iesdouyin.com"] },
+  { platform: "xhs", hosts: ["xiaohongshu.com", "xhslink.com"] }
+];
+function hostPlatform(hostname) {
+  const host = hostname.toLowerCase();
+  for (const entry of HOSTS) {
+    if (entry.hosts.some((h) => host === h || host.endsWith(`.${h}`))) return entry.platform;
+  }
+  return null;
+}
+function detectPlatform(input) {
+  var _a, _b;
+  const raw = (input != null ? input : "").trim();
+  if (!raw) return null;
+  const bareBv = raw.match(new RegExp(`^${BVID_RE.source}$`));
+  if (bareBv) {
+    return {
+      platform: "bilibili",
+      url: `https://www.bilibili.com/video/${bareBv[0]}`,
+      bvid: bareBv[0]
+    };
+  }
+  const urlText = (_a = raw.match(URL_RE)) == null ? void 0 : _a[0];
+  if (!urlText) return null;
+  let parsed;
+  try {
+    parsed = new URL(urlText);
+  } catch (e) {
+    return null;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+  const platform = hostPlatform(parsed.hostname);
+  if (!platform) return null;
+  const bvid = platform === "bilibili" ? (_b = urlText.match(BVID_RE)) == null ? void 0 : _b[0] : void 0;
+  return { platform, url: urlText, bvid };
+}
+function timestampMarkdown(video, ts, seconds) {
+  if (video.platform === "bilibili" && video.bvid) {
+    const at = Math.max(0, Math.floor(seconds));
+    const query = video.page && video.page > 0 ? `?p=${video.page}&t=${at}` : `?t=${at}`;
+    return `[${ts}](https://www.bilibili.com/video/${video.bvid}${query})`;
+  }
+  return `\`${ts}\``;
+}
+function platformLabel(platform) {
+  switch (platform) {
+    case "bilibili":
+      return "B\u7AD9";
+    case "douyin":
+      return "\u6296\u97F3";
+    case "xhs":
+      return "\u5C0F\u7EA2\u4E66";
+  }
+}
+
 // src/note.ts
 var BRACKETED_LINE = /^\[\s*(\d{1,2}:\d{2}(?::\d{2})?)(?:\.\d{1,3})?\s*(?:-->|[-–~])?\s*(?:\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?)?\s*\]\s*(.*)$/;
 var BARE_LINE = /^(\d{1,2}:\d{2}(?::\d{2})?)(?:\.\d{1,3})?\s*(?:-->|[-–~])\s*(?:\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?)?\s*(.*)$/;
@@ -233,7 +444,7 @@ function parseTimedLines(raw) {
     if (!line) continue;
     const m = (_a = BRACKETED_LINE.exec(line)) != null ? _a : BARE_LINE.exec(line);
     if (m) {
-      lines.push({ ts: m[1], seconds: toSeconds(m[1]), text: m[2].trim() });
+      lines.push({ ts: m[1], seconds: toSeconds2(m[1]), text: m[2].trim() });
       continue;
     }
     const last = lines[lines.length - 1];
@@ -241,7 +452,7 @@ function parseTimedLines(raw) {
   }
   return lines;
 }
-function toSeconds(ts) {
+function toSeconds2(ts) {
   const parts = ts.split(":").map((n) => Number(n));
   if (parts.some((n) => Number.isNaN(n))) return 0;
   return parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : parts[0] * 60 + parts[1];
@@ -293,6 +504,7 @@ function buildNote(task, meta) {
     "---",
     `title: ${q(meta.title)}`,
     `source: ${q(meta.sourceName)}`,
+    ...meta.sourceUrl ? [`source_url: ${q(meta.sourceUrl)}`] : [],
     `duration: ${q(duration)}`,
     `created: ${created}`,
     "tags:",
@@ -301,13 +513,14 @@ function buildNote(task, meta) {
     `aiditing_api: ${q(meta.apiBase)}`,
     "---"
   ];
+  const jumpHint = !meta.remote ? "\u6BCF\u6761\u524D\u9762\u7684\u65F6\u95F4\u70B9**\u70B9\u4E00\u4E0B\u5C31\u4F1A\u8DF3\u5230\u90A3\u53E5\u8BDD\u7684\u539F\u58F0**\uFF08\u9605\u8BFB\u6A21\u5F0F\u4E0B\uFF0C\u4E0A\u65B9\u64AD\u653E\u5668\u4F1A\u8DDF\u7740\u8DF3\uFF09\u3002" : meta.remote.platform === "bilibili" && meta.remote.bvid ? "\u6BCF\u6761\u524D\u9762\u7684\u65F6\u95F4\u70B9**\u70B9\u4E00\u4E0B\u4F1A\u8DF3\u5230 B\u7AD9\u5BF9\u5E94\u7684\u4F4D\u7F6E**\uFF08\u5728\u6D4F\u89C8\u5668\u91CC\u6253\u5F00\uFF09\u3002" : "\u6BCF\u6761\u524D\u9762\u662F\u8FD9\u53E5\u8BDD\u5728\u539F\u89C6\u9891\u91CC\u7684\u4F4D\u7F6E\u6807\u6CE8\u2014\u2014\u8FD9\u4E2A\u5E73\u53F0\u4E0D\u652F\u6301\u8DF3\u5230\u5177\u4F53\u79D2\u6570\uFF0C\u5BF9\u4E0D\u4E0A\u65F6\u8BF7\u56DE\u5230\u539F\u89C6\u9891\u624B\u52A8\u5B9A\u4F4D\u3002";
   const body = [
     "",
     "> [!warning] \u8FD9\u662F AI \u6574\u7406\u7684\u521D\u7A3F",
-    "> \u8F6C\u5199\u548C\u672F\u8BED\u7EA0\u6B63\u90FD\u53EF\u80FD\u51FA\u9519\uFF0C\u6B63\u5F0F\u5F15\u7528\u524D\u8BF7\u6838\u5BF9\u539F\u97F3\u3002\u6BCF\u6761\u524D\u9762\u7684\u65F6\u95F4\u70B9**\u70B9\u4E00\u4E0B\u5C31\u4F1A\u8DF3\u5230\u90A3\u53E5\u8BDD\u7684\u539F\u58F0**\uFF08\u9605\u8BFB\u6A21\u5F0F\u4E0B\uFF0C\u4E0A\u65B9\u64AD\u653E\u5668\u4F1A\u8DDF\u7740\u8DF3\uFF09\u3002",
+    `> \u8F6C\u5199\u548C\u672F\u8BED\u7EA0\u6B63\u90FD\u53EF\u80FD\u51FA\u9519\uFF0C\u6B63\u5F0F\u5F15\u7528\u524D\u8BF7\u6838\u5BF9\u539F\u97F3\u3002${jumpHint}`,
     ""
   ];
-  if (meta.embedSource && !/[[\]|#]/.test(meta.sourceName)) {
+  if (!meta.remote && meta.embedSource && !/[[\]|#]/.test(meta.sourceName)) {
     body.push(`![[${meta.sourceName}]]`, "");
   }
   if (summary) {
@@ -319,7 +532,8 @@ function buildNote(task, meta) {
     groups.forEach((group, i) => {
       body.push(`### [${group[0].ts}] ${sectionTitle(group[0], i, meta.sectionMinutes)}`, "");
       for (const line of group) {
-        body.push(`- \`${line.ts}\` ${line.text}`);
+        const stamp = meta.remote ? timestampMarkdown(meta.remote, line.ts, line.seconds) : `\`${line.ts}\``;
+        body.push(`- ${stamp} ${line.text}`);
       }
       body.push("");
     });
@@ -411,7 +625,7 @@ function seekTo(player, seconds) {
     }
     const onSeeked = () => {
       player.removeEventListener("seeked", onSeeked);
-      requestAnimationFrame(startPlayback);
+      window.requestAnimationFrame(startPlayback);
     };
     player.addEventListener("seeked", onSeeked);
     window.setTimeout(() => {
@@ -445,8 +659,7 @@ function attachSeekHandlers(root) {
   if (codes.length === 0) return 0;
   const playerNow = (anchor) => pickPlayer(root, anchor);
   let wired = 0;
-  for (const code of codes) {
-    const el = code;
+  for (const el of codes) {
     if (el.dataset.aiditingSeek === "1") continue;
     const seconds = parseTimestamp((_a = el.textContent) != null ? _a : "");
     if (seconds === null) continue;
@@ -484,7 +697,7 @@ function inspectScope(root) {
     var _a2;
     return parseTimestamp((_a2 = c.textContent) != null ? _a2 : "");
   }).filter((n) => n !== null);
-  const scope = root instanceof Element ? (_a = root.closest(".workspace-leaf")) != null ? _a : root : root;
+  const scope = root.instanceOf(Element) ? (_a = root.closest(".workspace-leaf")) != null ? _a : root : root;
   const mediaCount = findPlayers(scope).length;
   return {
     timestamps: ts.length,
@@ -548,7 +761,7 @@ var AiditingSettingTab = class extends import_obsidian2.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian2.Setting(containerEl).setName("\u5199\u5165\u524D\u786E\u8BA4\u8DEF\u5F84").setDesc("\u5F00\u542F\u540E\uFF0C\u843D\u76D8\u524D\u4F1A\u663E\u793A\u6700\u7EC8\u8DEF\u5F84\uFF0C\u70B9\u786E\u8BA4\u624D\u5199\u3002").addToggle(
+    new import_obsidian2.Setting(containerEl).setName("\u5199\u5165\u524D\u786E\u8BA4\u8DEF\u5F84").setDesc("\u4EC5\u672C\u5730\u4E0A\u4F20\u751F\u6548\uFF1A\u843D\u76D8\u524D\u663E\u793A\u6700\u7EC8\u8DEF\u5F84\uFF0C\u70B9\u786E\u8BA4\u624D\u5199\u3002\u94FE\u63A5\u8F6C\u5199\u4E0D\u5F39\u7A97\uFF08\u53EF\u80FD\u4E00\u6B21\u5199\u591A\u7BC7\uFF09\uFF0C\u9ED8\u8BA4\u5199\u5165 00-Inbox\uFF0C\u91CD\u540D\u81EA\u52A8\u52A0\u5E8F\u53F7\uFF0C\u4E0D\u4F1A\u8986\u76D6\u5DF2\u6709\u7B14\u8BB0\u3002").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.confirmBeforeWrite).onChange(async (value) => {
         this.plugin.settings.confirmBeforeWrite = value;
         await this.plugin.saveSettings();
@@ -590,8 +803,8 @@ var AiditingPlugin = class extends import_obsidian3.Plugin {
         "\u7B2C\u4E00\u6B21\u7528 AiDiTing\uFF1F\u2460 \u70B9\u8FD9\u6761\u6D88\u606F\u6253\u5F00\u5DE5\u4F5C\u53F0\uFF08\u6BCF\u6708 30 \u5206\u949F\u514D\u8D39\uFF09\u2461 \u767B\u5F55\u540E\u521B\u5EFA Key \u5E76\u590D\u5236 \u2462 \u56DE\u6765\u8FD0\u884C\u547D\u4EE4\u300C\u7C98\u8D34 API Key\uFF08\u4ECE\u526A\u8D34\u677F\uFF09\u300D",
         2e4
       );
-      notice.noticeEl.style.cursor = "pointer";
-      notice.noticeEl.addEventListener("click", () => {
+      notice.messageEl.addClass("aiditing-notice-link");
+      notice.messageEl.addEventListener("click", () => {
         window.open(CONSOLE_URL, "_blank");
         notice.hide();
       });
@@ -710,6 +923,21 @@ ${text.slice(0, 400)}`, 2e4)
         new MediaPickerModal(this.app, this).open();
       }
     });
+    this.addCommand({
+      id: "transcribe-from-link",
+      name: "\u4ECE\u94FE\u63A5\u6574\u7406\uFF08B\u7AD9 / \u6296\u97F3 / \u5C0F\u7EA2\u4E66\uFF09",
+      callback: () => {
+        if (!import_obsidian3.Platform.isDesktopApp) {
+          new import_obsidian3.Notice("\u4EC5\u652F\u6301\u684C\u9762\u7AEF Obsidian\u3002");
+          return;
+        }
+        if (!this.settings.apiKey) {
+          new import_obsidian3.Notice("\u5148\u586B API Key\uFF1A\u8FD0\u884C\u547D\u4EE4\u300C\u7C98\u8D34 API Key\uFF08\u4ECE\u526A\u8D34\u677F\uFF09\u300D\uFF0C\u6216\u5728\u8BBE\u7F6E\u91CC\u586B\u3002", 1e4);
+          return;
+        }
+        new LinkTranscribeModal(this.app, this).open();
+      }
+    });
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu, file) => {
         if (!(file instanceof import_obsidian3.TFile) || !isMedia(file)) return;
@@ -824,10 +1052,94 @@ ${text.slice(0, 400)}`, 2e4)
       new import_obsidian3.Notice(err instanceof Error ? err.message : String(err), 12e3);
     }
   }
+  /** 检查链接：识别平台 + 预检。错误抛给调用方去显示，这里不弹 Notice */
+  async checkLink(raw) {
+    const match = detectPlatform(raw);
+    if (!match) {
+      throw new Error("\u8FD9\u4E2A\u94FE\u63A5\u8BA4\u4E0D\u51FA\u6765\u3002\u76EE\u524D\u53EA\u652F\u6301 B\u7AD9 / \u6296\u97F3 / \u5C0F\u7EA2\u4E66\uFF0C\u5176\u4ED6\u7AD9\u70B9\u8BF7\u7528\u7F51\u9875\u7AEF\u3002");
+    }
+    const api = new AiditingApi(this.settings.apiBase, this.settings.apiKey, obsidianTransport);
+    const result = await api.checkPlatform(match);
+    return { match, result };
+  }
+  /**
+   * 远程视频（B站 / 抖音 / 小红书）：提交 → 逐集轮询 → 每集写一篇笔记。
+   *
+   * 为什么多P 拆成多个文件：一集两小时已经很长，30 集合成一篇既打不开也搜不动。
+   * 这和本地批量上传的行为一致——一集就是一篇。
+   */
+  async transcribeRemote(match, parts, fallbackTitle) {
+    var _a, _b;
+    if (!import_obsidian3.Platform.isDesktopApp) {
+      new import_obsidian3.Notice("\u4EC5\u652F\u6301\u684C\u9762\u7AEF Obsidian\uFF1B\u624B\u673A\u7AEF\u4E0D\u52A0\u8F7D\u8FD9\u4E2A\u63D2\u4EF6\u3002");
+      return;
+    }
+    const api = new AiditingApi(this.settings.apiBase, this.settings.apiKey, obsidianTransport);
+    const progress = new import_obsidian3.Notice(`\u6B63\u5728\u63D0\u4EA4\u5230 ${platformLabel(match.platform)}\u2026`, 0);
+    try {
+      const ids = await api.submitPlatform(match, parts);
+      if (ids.length === 0) {
+        throw new Error("\u63D0\u4EA4\u6210\u529F\u4F46\u6CA1\u62FF\u5230\u4EFB\u52A1\u53F7\uFF0C\u8BF7\u628A\u94FE\u63A5\u53CD\u9988\u7ED9\u6211\u4EEC\u3002");
+      }
+      const written = [];
+      for (let i = 0; i < ids.length; i += 1) {
+        const part = parts[i];
+        const label = parts.length > 1 ? `\uFF08${i + 1}/${ids.length}\uFF09` : "";
+        progress.setMessage(`\u5DF2\u63D0\u4EA4${label}\uFF0C\u7B49\u5F85\u6574\u7406\u2026`);
+        const task = await api.waitForTask(ids[i], (t) => {
+          progress.setMessage(`\u6574\u7406\u4E2D${label} ${describeTask(t)}`);
+        });
+        if (task.status !== "completed") {
+          new import_obsidian3.Notice(
+            `\u7B2C ${i + 1} \u96C6\u6574\u7406\u5931\u8D25\uFF1A${(_a = task.errorMessage) != null ? _a : task.status}\u3002\u989D\u5EA6\u4E0D\u53D7\u5F71\u54CD\u3002`,
+            12e3
+          );
+          continue;
+        }
+        const title = safeFileName((part == null ? void 0 : part.title) || fallbackTitle || "\u89C6\u9891");
+        const note = buildNote(task, {
+          sourceName: (part == null ? void 0 : part.title) || fallbackTitle || "\u89C6\u9891",
+          title,
+          taskId: ids[i],
+          apiBase: this.settings.apiBase,
+          sectionMinutes: this.settings.sectionMinutes,
+          // 远程视频：不嵌本地媒体，时间点按平台能力渲染（见 platform.ts）
+          remote: {
+            platform: match.platform,
+            bvid: (_b = part == null ? void 0 : part.bvid) != null ? _b : match.bvid,
+            // 单P 不带分P参数，否则链接里会多一个 ?p=1
+            page: parts.length > 1 ? part == null ? void 0 : part.page : void 0
+          },
+          sourceUrl: (part == null ? void 0 : part.url) || match.url
+        });
+        const target = this.buildPathForTitle(title);
+        const folder = (0, import_obsidian3.normalizePath)(target.split("/").slice(0, -1).join("/") || "/");
+        await this.ensureFolder(folder);
+        await this.app.vault.create(target, note);
+        written.push(target);
+      }
+      progress.hide();
+      new import_obsidian3.Notice(
+        written.length > 0 ? `\u5DF2\u5199\u5165 ${written.length} \u7BC7\uFF1A${written[0]}${written.length > 1 ? " \u7B49" : ""}` : "\u6CA1\u6709\u5199\u5165\u4EFB\u4F55\u7B14\u8BB0\u3002",
+        1e4
+      );
+      if (this.settings.openAfterCreate && written.length === 1) {
+        const file = this.app.vault.getAbstractFileByPath(written[0]);
+        if (file instanceof import_obsidian3.TFile) await this.app.workspace.getLeaf(true).openFile(file);
+      }
+    } catch (err) {
+      progress.hide();
+      new import_obsidian3.Notice(err instanceof Error ? err.message : String(err), 12e3);
+    }
+  }
   /** 目标路径：目标目录 + 标题 + .md；重名时加序号，绝不覆盖已有笔记 */
   buildPath(file) {
+    return this.buildPathForTitle(baseName(file.name));
+  }
+  /** 同上，但标题直接给（远程视频没有 TFile） */
+  buildPathForTitle(title) {
     const folder = (0, import_obsidian3.normalizePath)(this.settings.targetFolder || "00-Inbox");
-    const base = safeFileName(baseName(file.name));
+    const base = safeFileName(title);
     let candidate = (0, import_obsidian3.normalizePath)(`${folder}/${base}.md`);
     let i = 2;
     while (this.app.vault.getAbstractFileByPath(candidate)) {
@@ -857,6 +1169,100 @@ function describeTask(task) {
   if (task.status === "queued") return "\u6392\u961F\u4E2D";
   return "\u5904\u7406\u4E2D";
 }
+var LinkTranscribeModal = class extends import_obsidian3.Modal {
+  constructor(app, plugin) {
+    super(app);
+    this.plugin = plugin;
+    this.raw = "";
+    this.match = null;
+    this.result = null;
+    this.checked = /* @__PURE__ */ new Set();
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.createEl("h3", { text: "\u4ECE\u94FE\u63A5\u6574\u7406" });
+    contentEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "\u652F\u6301 B\u7AD9\u3001\u6296\u97F3\u3001\u5C0F\u7EA2\u4E66\u3002\u53EF\u4EE5\u76F4\u63A5\u7C98\u8D34 App \u91CC\u590D\u5236\u7684\u6574\u6BB5\u5206\u4EAB\u6587\u6848\u3002"
+    });
+    new import_obsidian3.Setting(contentEl).setName("\u89C6\u9891\u94FE\u63A5").addText((text) => {
+      text.setPlaceholder("https://www.bilibili.com/video/BV...").onChange((value) => {
+        this.raw = value;
+      });
+      window.setTimeout(() => text.inputEl.focus(), 50);
+    });
+    this.resultEl = contentEl.createDiv();
+    new import_obsidian3.Setting(contentEl).addButton(
+      (btn) => btn.setButtonText("\u68C0\u67E5\u94FE\u63A5").onClick(() => {
+        void this.doCheck();
+      })
+    ).addButton(
+      (btn) => btn.setButtonText("\u5F00\u59CB\u6574\u7406").setCta().onClick(() => {
+        void this.doSubmit();
+      })
+    );
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+  async doCheck() {
+    const raw = this.raw.trim();
+    if (!raw) {
+      new import_obsidian3.Notice("\u5148\u7C98\u8D34\u4E00\u4E2A\u94FE\u63A5\u3002");
+      return;
+    }
+    this.resultEl.empty();
+    this.resultEl.createEl("p", { text: "\u68C0\u67E5\u4E2D\u2026" });
+    this.checked.clear();
+    try {
+      const { match, result } = await this.plugin.checkLink(raw);
+      this.match = match;
+      this.result = result;
+      this.renderResult();
+    } catch (err) {
+      this.match = null;
+      this.result = null;
+      this.resultEl.empty();
+      this.resultEl.createEl("p", { text: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  renderResult() {
+    const result = this.result;
+    if (!result) return;
+    this.resultEl.empty();
+    const totalSeconds = result.parts.reduce((sum, p) => sum + p.seconds, 0);
+    this.resultEl.createEl("p", {
+      text: `${result.title || "\u672A\u547D\u540D"} \xB7 ${result.parts.length} \u96C6 \xB7 \u5408\u8BA1\u7EA6 ${Math.round(totalSeconds / 60)} \u5206\u949F`
+    });
+    this.resultEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "\u52FE\u9009\u8981\u6574\u7406\u7684\u90E8\u5206\uFF08\u9ED8\u8BA4\u4E0D\u52FE\uFF09\uFF0C\u6BCF\u96C6\u751F\u6210\u4E00\u7BC7\u7B14\u8BB0\u3002"
+    });
+    for (const part of result.parts) {
+      const row = this.resultEl.createDiv({ cls: "aiditing-part-row" });
+      const box = row.createEl("input", { type: "checkbox" });
+      box.checked = this.checked.has(part.page);
+      box.addEventListener("change", () => {
+        if (box.checked) this.checked.add(part.page);
+        else this.checked.delete(part.page);
+      });
+      row.createEl("span", { text: ` P${part.page} ${part.title}\uFF08${part.durationText}\uFF09` });
+    }
+  }
+  async doSubmit() {
+    if (!this.match || !this.result) {
+      new import_obsidian3.Notice("\u5148\u70B9\u300C\u68C0\u67E5\u94FE\u63A5\u300D\u3002");
+      return;
+    }
+    const parts = this.result.parts.filter((p) => this.checked.has(p.page));
+    if (parts.length === 0) {
+      new import_obsidian3.Notice("\u81F3\u5C11\u52FE\u9009\u4E00\u96C6\u3002");
+      return;
+    }
+    this.close();
+    await this.plugin.transcribeRemote(this.match, parts, this.result.title);
+  }
+};
 var MediaPickerModal = class extends import_obsidian3.FuzzySuggestModal {
   constructor(app, plugin) {
     super(app);

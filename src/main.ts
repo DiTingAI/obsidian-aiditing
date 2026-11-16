@@ -10,9 +10,16 @@ import {
   TFile,
   normalizePath,
 } from "obsidian";
-import { AiditingApi, MAX_FILE_BYTES, type TaskView } from "./api";
+import {
+  AiditingApi,
+  MAX_FILE_BYTES,
+  type PlatformCheckResult,
+  type PlatformPart,
+  type TaskView,
+} from "./api";
 import { baseName, isMediaName, mimeOf, safeFileName } from "./media";
 import { buildNote } from "./note";
+import { detectPlatform, platformLabel, type PlatformMatch } from "./platform";
 import { obsidianTransport } from "./obsidian-transport";
 import {
   attachSeekHandlers,
@@ -50,8 +57,11 @@ export default class AiditingPlugin extends Plugin {
         "第一次用 AiDiTing？① 点这条消息打开工作台（每月 30 分钟免费）② 登录后创建 Key 并复制 ③ 回来运行命令「粘贴 API Key（从剪贴板）」",
         20000,
       );
-      notice.noticeEl.style.cursor = "pointer";
-      notice.noticeEl.addEventListener("click", () => {
+      // 可点性走 CSS 类（styles.css 里的 .aiditing-notice-link），不直接写 inline style：
+      // 目录扫描禁止静态样式赋值，而且样式散在 TS 里，换主题时没法统一改。
+      // messageEl 是 1.8.7 起的正式成员，noticeEl 已废弃。
+      notice.messageEl.addClass("aiditing-notice-link");
+      notice.messageEl.addEventListener("click", () => {
         window.open(CONSOLE_URL, "_blank");
         notice.hide();
       });
@@ -60,9 +70,10 @@ export default class AiditingPlugin extends Plugin {
     // 阅读模式：把正文里的 `00:12` 变成可点的时间点，点了跳原生播放器到该秒。
     // 向上找预览容器，是因为嵌入的播放器和正文可能不在同一个渲染段里。
     this.registerMarkdownPostProcessor((el) => {
-      const root = (el.closest(".markdown-preview-sizer") ??
-        el.closest(".markdown-preview-view") ??
-        el) as HTMLElement;
+      // 用类型标注而不是 `as` 断言：closest 的泛型会跟着标注推出来，
+      // 断言在这里是多余的（目录扫描会报 unnecessary assertion）
+      const root: HTMLElement =
+        el.closest(".markdown-preview-sizer") ?? el.closest(".markdown-preview-view") ?? el;
       attachSeekHandlers(root);
     });
 
@@ -78,7 +89,7 @@ export default class AiditingPlugin extends Plugin {
         if (code.dataset.aiditingSeek === "1") return; // 阅读模式已接管，别重复触发
         const seconds = parseTimestamp(code.textContent ?? "");
         if (seconds === null) return;
-        const scopeEl = (code.closest(".workspace-leaf") ?? document.body) as HTMLElement;
+        const scopeEl: HTMLElement = code.closest(".workspace-leaf") ?? document.body;
         // 用 pickPlayer 而不是 findPlayer：同一段嵌入可能渲染出两个 <video>，
         // 盲取第一个会跳到用户看不见的那个（阅读模式上已经踩过一次，见 docs）。
         const player = pickPlayer(scopeEl, code);
@@ -183,6 +194,24 @@ export default class AiditingPlugin extends Plugin {
       name: "从 Vault 里选一个音视频整理",
       callback: () => {
         new MediaPickerModal(this.app, this).open();
+      },
+    });
+
+    // 链接转写：插件从「只能处理 vault 里的本地文件」扩到 B站/抖音/小红书。
+    // 这三家占用户实际需求的大头，而本地文件只是其中一小部分。
+    this.addCommand({
+      id: "transcribe-from-link",
+      name: "从链接整理（B站 / 抖音 / 小红书）",
+      callback: () => {
+        if (!Platform.isDesktopApp) {
+          new Notice("仅支持桌面端 Obsidian。");
+          return;
+        }
+        if (!this.settings.apiKey) {
+          new Notice("先填 API Key：运行命令「粘贴 API Key（从剪贴板）」，或在设置里填。", 10000);
+          return;
+        }
+        new LinkTranscribeModal(this.app, this).open();
       },
     });
 
@@ -325,10 +354,111 @@ export default class AiditingPlugin extends Plugin {
     }
   }
 
+  /** 检查链接：识别平台 + 预检。错误抛给调用方去显示，这里不弹 Notice */
+  async checkLink(raw: string): Promise<{ match: PlatformMatch; result: PlatformCheckResult }> {
+    const match = detectPlatform(raw);
+    if (!match) {
+      throw new Error("这个链接认不出来。目前只支持 B站 / 抖音 / 小红书，其他站点请用网页端。");
+    }
+    const api = new AiditingApi(this.settings.apiBase, this.settings.apiKey, obsidianTransport);
+    const result = await api.checkPlatform(match);
+    return { match, result };
+  }
+
+  /**
+   * 远程视频（B站 / 抖音 / 小红书）：提交 → 逐集轮询 → 每集写一篇笔记。
+   *
+   * 为什么多P 拆成多个文件：一集两小时已经很长，30 集合成一篇既打不开也搜不动。
+   * 这和本地批量上传的行为一致——一集就是一篇。
+   */
+  async transcribeRemote(
+    match: PlatformMatch,
+    parts: PlatformPart[],
+    fallbackTitle: string,
+  ): Promise<void> {
+    if (!Platform.isDesktopApp) {
+      new Notice("仅支持桌面端 Obsidian；手机端不加载这个插件。");
+      return;
+    }
+
+    const api = new AiditingApi(this.settings.apiBase, this.settings.apiKey, obsidianTransport);
+    const progress = new Notice(`正在提交到 ${platformLabel(match.platform)}…`, 0);
+
+    try {
+      const ids = await api.submitPlatform(match, parts);
+      if (ids.length === 0) {
+        throw new Error("提交成功但没拿到任务号，请把链接反馈给我们。");
+      }
+
+      const written: string[] = [];
+      for (let i = 0; i < ids.length; i += 1) {
+        const part = parts[i];
+        const label = parts.length > 1 ? `（${i + 1}/${ids.length}）` : "";
+        progress.setMessage(`已提交${label}，等待整理…`);
+
+        const task = await api.waitForTask(ids[i], (t) => {
+          progress.setMessage(`整理中${label} ${describeTask(t)}`);
+        });
+
+        if (task.status !== "completed") {
+          new Notice(
+            `第 ${i + 1} 集整理失败：${task.errorMessage ?? task.status}。额度不受影响。`,
+            12000,
+          );
+          continue;
+        }
+
+        const title = safeFileName(part?.title || fallbackTitle || "视频");
+        const note = buildNote(task, {
+          sourceName: part?.title || fallbackTitle || "视频",
+          title,
+          taskId: ids[i],
+          apiBase: this.settings.apiBase,
+          sectionMinutes: this.settings.sectionMinutes,
+          // 远程视频：不嵌本地媒体，时间点按平台能力渲染（见 platform.ts）
+          remote: {
+            platform: match.platform,
+            bvid: part?.bvid ?? match.bvid,
+            // 单P 不带分P参数，否则链接里会多一个 ?p=1
+            page: parts.length > 1 ? part?.page : undefined,
+          },
+          sourceUrl: part?.url || match.url,
+        });
+
+        const target = this.buildPathForTitle(title);
+        const folder = normalizePath(target.split("/").slice(0, -1).join("/") || "/");
+        await this.ensureFolder(folder);
+        await this.app.vault.create(target, note);
+        written.push(target);
+      }
+
+      progress.hide();
+      new Notice(
+        written.length > 0
+          ? `已写入 ${written.length} 篇：${written[0]}${written.length > 1 ? " 等" : ""}`
+          : "没有写入任何笔记。",
+        10000,
+      );
+
+      if (this.settings.openAfterCreate && written.length === 1) {
+        const file = this.app.vault.getAbstractFileByPath(written[0]);
+        if (file instanceof TFile) await this.app.workspace.getLeaf(true).openFile(file);
+      }
+    } catch (err) {
+      progress.hide();
+      new Notice(err instanceof Error ? err.message : String(err), 12000);
+    }
+  }
+
   /** 目标路径：目标目录 + 标题 + .md；重名时加序号，绝不覆盖已有笔记 */
   private buildPath(file: TFile): string {
+    return this.buildPathForTitle(baseName(file.name));
+  }
+
+  /** 同上，但标题直接给（远程视频没有 TFile） */
+  private buildPathForTitle(title: string): string {
     const folder = normalizePath(this.settings.targetFolder || "00-Inbox");
-    const base = safeFileName(baseName(file.name));
+    const base = safeFileName(title);
     let candidate = normalizePath(`${folder}/${base}.md`);
 
     let i = 2;
@@ -361,6 +491,132 @@ function describeTask(task: TaskView): string {
   if (typeof task.progress === "number" && task.progress > 0) return `${Math.round(task.progress)}%`;
   if (task.status === "queued") return "排队中";
   return "处理中";
+}
+
+/**
+ * 链接转写弹窗：贴链接 → 检查 → 勾选集数 → 提交。
+ *
+ * 为什么默认一集都不勾：一集 40 分钟 × 30 集 = 1200 分钟，而免费额度是每月 30 分钟。
+ * 默认全选会让第一次使用就撞额度墙，用户看到的是「额度不足」而不是「整理好了」。
+ * 宁可让用户多点一下，也不要在第一次就把人推到付费墙前。
+ */
+class LinkTranscribeModal extends Modal {
+  private raw = "";
+  private match: PlatformMatch | null = null;
+  private result: PlatformCheckResult | null = null;
+  private readonly checked = new Set<number>();
+  private resultEl!: HTMLElement;
+
+  constructor(
+    app: App,
+    private plugin: AiditingPlugin,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.createEl("h3", { text: "从链接整理" });
+    contentEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "支持 B站、抖音、小红书。可以直接粘贴 App 里复制的整段分享文案。",
+    });
+
+    new Setting(contentEl).setName("视频链接").addText((text) => {
+      text
+        .setPlaceholder("https://www.bilibili.com/video/BV...")
+        .onChange((value) => {
+          this.raw = value;
+        });
+      window.setTimeout(() => text.inputEl.focus(), 50);
+    });
+
+    this.resultEl = contentEl.createDiv();
+
+    new Setting(contentEl)
+      .addButton((btn) =>
+        btn.setButtonText("检查链接").onClick(() => {
+          void this.doCheck();
+        }),
+      )
+      .addButton((btn) =>
+        btn
+          .setButtonText("开始整理")
+          .setCta()
+          .onClick(() => {
+            void this.doSubmit();
+          }),
+      );
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+
+  private async doCheck(): Promise<void> {
+    const raw = this.raw.trim();
+    if (!raw) {
+      new Notice("先粘贴一个链接。");
+      return;
+    }
+
+    this.resultEl.empty();
+    this.resultEl.createEl("p", { text: "检查中…" });
+    this.checked.clear();
+
+    try {
+      const { match, result } = await this.plugin.checkLink(raw);
+      this.match = match;
+      this.result = result;
+      this.renderResult();
+    } catch (err) {
+      this.match = null;
+      this.result = null;
+      this.resultEl.empty();
+      this.resultEl.createEl("p", { text: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  private renderResult(): void {
+    const result = this.result;
+    if (!result) return;
+
+    this.resultEl.empty();
+    const totalSeconds = result.parts.reduce((sum, p) => sum + p.seconds, 0);
+    this.resultEl.createEl("p", {
+      text: `${result.title || "未命名"} · ${result.parts.length} 集 · 合计约 ${Math.round(totalSeconds / 60)} 分钟`,
+    });
+    this.resultEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "勾选要整理的部分（默认不勾），每集生成一篇笔记。",
+    });
+
+    for (const part of result.parts) {
+      const row = this.resultEl.createDiv({ cls: "aiditing-part-row" });
+      const box = row.createEl("input", { type: "checkbox" });
+      box.checked = this.checked.has(part.page);
+      box.addEventListener("change", () => {
+        if (box.checked) this.checked.add(part.page);
+        else this.checked.delete(part.page);
+      });
+      row.createEl("span", { text: ` P${part.page} ${part.title}（${part.durationText}）` });
+    }
+  }
+
+  private async doSubmit(): Promise<void> {
+    if (!this.match || !this.result) {
+      new Notice("先点「检查链接」。");
+      return;
+    }
+    const parts = this.result.parts.filter((p) => this.checked.has(p.page));
+    if (parts.length === 0) {
+      new Notice("至少勾选一集。");
+      return;
+    }
+
+    this.close();
+    await this.plugin.transcribeRemote(this.match, parts, this.result.title);
+  }
 }
 
 class MediaPickerModal extends FuzzySuggestModal<TFile> {

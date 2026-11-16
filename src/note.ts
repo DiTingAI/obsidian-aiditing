@@ -1,4 +1,5 @@
 import type { TaskView } from "./api";
+import { timestampMarkdown, type RemoteVideo } from "./platform";
 
 /**
  * 把接口返回的三个字段拼成一篇能直接进 Vault 的 Markdown。
@@ -29,6 +30,16 @@ export interface NoteMeta {
    * 默认由调用方（设置项）显式开启，纯函数层不自己决定。
    */
   embedSource?: boolean;
+  /**
+   * 远程视频（B站 / 抖音 / 小红书）。
+   *
+   * 一旦有值，说明原视频**不在 vault 里**：既不能 `![[...]]` 嵌入，也没有播放器可跳。
+   * 此时时间点改成按平台能力渲染——B站能带 `?t=` 跳网页对应秒，
+   * 抖音/小红书只能做位置标注（见 platform.ts）。
+   */
+  remote?: RemoteVideo;
+  /** 原视频链接，写进 frontmatter 便于以后回到源视频 */
+  sourceUrl?: string;
 }
 
 export interface TimedLine {
@@ -143,6 +154,7 @@ export function buildNote(task: TaskView, meta: NoteMeta): string {
     "---",
     `title: ${q(meta.title)}`,
     `source: ${q(meta.sourceName)}`,
+    ...(meta.sourceUrl ? [`source_url: ${q(meta.sourceUrl)}`] : []),
     `duration: ${q(duration)}`,
     `created: ${created}`,
     "tags:",
@@ -152,16 +164,25 @@ export function buildNote(task: TaskView, meta: NoteMeta): string {
     "---",
   ];
 
+  // 开头说明必须说实话：本地媒体能跳原生播放器，B站只能跳网页，抖音/小红书跳不了。
+  // 三句话对应三种真实能力，写错任何一种，用户点一下发现没反应就会觉得整个功能是假的。
+  const jumpHint = !meta.remote
+    ? "每条前面的时间点**点一下就会跳到那句话的原声**（阅读模式下，上方播放器会跟着跳）。"
+    : meta.remote.platform === "bilibili" && meta.remote.bvid
+      ? "每条前面的时间点**点一下会跳到 B站对应的位置**（在浏览器里打开）。"
+      : "每条前面是这句话在原视频里的位置标注——这个平台不支持跳到具体秒数，对不上时请回到原视频手动定位。";
+
   const body: string[] = [
     "",
     "> [!warning] 这是 AI 整理的初稿",
-    "> 转写和术语纠正都可能出错，正式引用前请核对原音。每条前面的时间点**点一下就会跳到那句话的原声**（阅读模式下，上方播放器会跟着跳）。",
+    `> 转写和术语纠正都可能出错，正式引用前请核对原音。${jumpHint}`,
     "",
   ];
 
   // 原媒体嵌入：逐句时间点只有在同一页能看到时间轴时才有核对价值。
   // 文件名里带 | # [ ] 会破坏 wiki 链接语法，这种情况宁可不嵌，也不要生成一个坏链接。
-  if (meta.embedSource && !/[[\]|#]/.test(meta.sourceName)) {
+  // 远程视频（B站/抖音/小红书）在 vault 里根本没有文件，嵌了就是一个空引用。
+  if (!meta.remote && meta.embedSource && !/[[\]|#]/.test(meta.sourceName)) {
     body.push(`![[${meta.sourceName}]]`, "");
   }
 
@@ -175,8 +196,13 @@ export function buildNote(task: TaskView, meta: NoteMeta): string {
     groups.forEach((group, i) => {
       body.push(`### [${group[0].ts}] ${sectionTitle(group[0], i, meta.sectionMinutes)}`, "");
       for (const line of group) {
+        // 远程视频的时间点按平台能力渲染：B站写成带 ?t= 的链接（点了跳网页），
+        // 抖音/小红书只能留行内代码做标注。本地媒体仍由 seek.ts 接管点击。
+        const stamp = meta.remote
+          ? timestampMarkdown(meta.remote, line.ts, line.seconds)
+          : `\`${line.ts}\``;
         // 用列表项而不是裸行：Obsidian 的预览模式会把连续单行合并成一段，列表能保住逐句一行
-        body.push(`- \`${line.ts}\` ${line.text}`);
+        body.push(`- ${stamp} ${line.text}`);
       }
       body.push("");
     });

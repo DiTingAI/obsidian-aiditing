@@ -14,6 +14,10 @@ import { AiditingApi, MAX_FILE_BYTES } from "../src/api";
 import { baseName, mimeOf, safeFileName } from "../src/media";
 import { buildNote } from "../src/note";
 import type { Transport } from "../src/transport";
+import { installWindowTimer } from "../tests/node-window";
+
+// 插件的延时器只用 window.setTimeout（目录扫描要求），Node 里得补垫片
+installWindowTimer();
 
 const fetchTransport: Transport = async (req) => {
   const res = await fetch(req.url, {

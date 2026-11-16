@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { AiditingApi, extractTaskId } from "../src/api";
 import type { Transport, TransportRequest } from "../src/transport";
+import { installWindowTimer } from "./node-window";
+
+// src/timer.ts 只用 window.setTimeout（Obsidian 目录扫描的硬要求），Node 里必须补个垫片
+installWindowTimer();
 
 /**
  * 用假传输层测客户端。
@@ -23,6 +27,171 @@ function bodyText(req: TransportRequest): string {
   assert.ok(req.body, "上传请求必须带 body");
   return new TextDecoder().decode(req.body);
 }
+
+/**
+ * 平台链接转写（B站 / 抖音 / 小红书）。
+ *
+ * 这三个端点的请求与响应结构互不相同，是最容易写错的地方：
+ *   B站 check   → parts[]，duration 是字符串 "MM:SS"
+ *   抖音/小红书  → 单条，duration 是整数秒
+ *   B站 submit  → 请求体是 videos[] 数组，响应 task_ids[]
+ *   抖音/小红书  → 请求体是单条，响应 task_id
+ * 这里把每种结构都钉死，避免「参数错误」这种看不出根因的线上问题。
+ */
+
+function jsonResponse(payload: unknown, status = 200): { status: number; text: string } {
+  return { status, text: JSON.stringify(payload) };
+}
+
+test("平台检查：B站单P，时长字符串被解析成秒，同时保留原文", async () => {
+  const { transport, calls } = mockTransport(() =>
+    jsonResponse({
+      code: "0",
+      data: {
+        is_multi_part: false,
+        video_type: "single",
+        title: "某个视频",
+        duration: "12:30",
+        thumbnail: "https://i0.hdslb.com/a.jpg",
+        parts: [
+          {
+            url: "https://www.bilibili.com/video/BV1xx411c7mD",
+            bvid: "BV1xx411c7mD",
+            aid: 111,
+            cid: 222,
+            duration: "12:30",
+            thumbnail: "https://i0.hdslb.com/a.jpg",
+            title: "第一P",
+          },
+        ],
+      },
+    }),
+  );
+
+  const api = new AiditingApi("https://api.test", "sk-test", transport);
+  const r = await api.checkPlatform({
+    platform: "bilibili",
+    url: "https://www.bilibili.com/video/BV1xx411c7mD",
+    bvid: "BV1xx411c7mD",
+  });
+
+  assert.equal(calls[0].method, "POST");
+  assert.equal(calls[0].url, "https://api.test/v1/transcriptions/bilibili/check");
+  assert.equal(calls[0].headers.Authorization, "Bearer sk-test");
+  assert.deepEqual(JSON.parse(bodyText(calls[0])), {
+    video_url: "https://www.bilibili.com/video/BV1xx411c7mD",
+  });
+
+  assert.equal(r.parts.length, 1);
+  assert.equal(r.parts[0].seconds, 750, "12:30 应换算成 750 秒");
+  assert.equal(r.parts[0].durationText, "12:30", "提交时后端要原样的字符串时长");
+  assert.equal(r.parts[0].page, 1);
+  assert.equal(r.parts[0].bvid, "BV1xx411c7mD");
+});
+
+test("平台检查：B站多P，每个 part 拿到递增的分P序号", async () => {
+  const part = (i: number) => ({
+    url: `https://www.bilibili.com/video/BV1xx411c7mD?p=${i}`,
+    bvid: "BV1xx411c7mD",
+    aid: 1,
+    cid: 100 + i,
+    duration: "05:00",
+    thumbnail: `https://i0.hdslb.com/${i}.jpg`,
+    title: `第${i}P`,
+  });
+
+  const { transport } = mockTransport(() =>
+    jsonResponse({
+      code: "0",
+      data: { is_multi_part: true, video_type: "multi_part", title: "合集", duration: "10:00", parts: [part(1), part(2), part(3)] },
+    }),
+  );
+
+  const api = new AiditingApi("https://api.test", "sk-test", transport);
+  const r = await api.checkPlatform({ platform: "bilibili", url: "https://b23.tv/x", });
+
+  assert.equal(r.parts.length, 3);
+  assert.deepEqual(r.parts.map((p) => p.page), [1, 2, 3]);
+  assert.equal(r.parts[2].seconds, 300);
+});
+
+test("平台检查：抖音时长为整数秒，只有一个 part", async () => {
+  const { transport, calls } = mockTransport(() =>
+    jsonResponse({
+      code: "0",
+      data: {
+        platform: "douyin",
+        title: "某个短视频",
+        duration: 95,
+        cover: "https://p3.douyinpic.com/a.jpg",
+        author: "某人",
+        video_url_resolved: "https://www.douyin.com/video/123",
+      },
+    }),
+  );
+
+  const api = new AiditingApi("https://api.test", "sk-test", transport);
+  const r = await api.checkPlatform({ platform: "douyin", url: "https://v.douyin.com/abc/" });
+
+  assert.equal(calls[0].url, "https://api.test/v1/transcriptions/douyin/check");
+  assert.equal(r.parts.length, 1);
+  assert.equal(r.parts[0].seconds, 95);
+  assert.equal(r.parts[0].page, 1);
+  assert.equal(r.title, "某个短视频");
+});
+
+test("平台提交：B站请求体是 videos[] 数组，返回 task_ids", async () => {
+  const { transport, calls } = mockTransport(() =>
+    jsonResponse({ code: "0", data: { task_ids: ["tsk_a", "tsk_b"], success_count: 2, total_count: 2 } }),
+  );
+
+  const api = new AiditingApi("https://api.test", "sk-test", transport);
+  const parts = [
+    { url: "https://www.bilibili.com/video/BV1xx411c7mD?p=1", title: "P1", seconds: 300, durationText: "05:00", page: 1, bvid: "BV1xx411c7mD", thumbnail: "https://t/1.jpg", aid: 1, cid: 11 },
+    { url: "https://www.bilibili.com/video/BV1xx411c7mD?p=2", title: "P2", seconds: 310, durationText: "05:10", page: 2, bvid: "BV1xx411c7mD", thumbnail: "https://t/2.jpg", aid: 1, cid: 12 },
+  ];
+
+  const ids = await api.submitPlatform({ platform: "bilibili", url: "https://www.bilibili.com/video/BV1xx411c7mD", bvid: "BV1xx411c7mD" }, parts);
+
+  assert.equal(calls[0].url, "https://api.test/v1/transcriptions/bilibili");
+  const body = JSON.parse(bodyText(calls[0]));
+  assert.equal(body.videos.length, 2);
+  assert.equal(body.videos[0].url, "https://www.bilibili.com/video/BV1xx411c7mD?p=1");
+  assert.equal(body.videos[0].duration, "05:00", "B站要求字符串时长");
+  assert.equal(body.videos[0].title, "P1");
+  assert.deepEqual(ids, ["tsk_a", "tsk_b"]);
+});
+
+test("平台提交：抖音请求体是单条，返回单个 task_id 被包成数组", async () => {
+  const { transport, calls } = mockTransport(() =>
+    jsonResponse({ code: "0", data: { task_id: "tsk_d", file_name: "x.mp4", platform: "douyin" } }),
+  );
+
+  const api = new AiditingApi("https://api.test", "sk-test", transport);
+  const ids = await api.submitPlatform(
+    { platform: "douyin", url: "https://www.douyin.com/video/123" },
+    [{ url: "https://www.douyin.com/video/123", title: "短视频", seconds: 95, durationText: "01:35", page: 1, thumbnail: "https://c/a.jpg" }],
+  );
+
+  assert.equal(calls[0].url, "https://api.test/v1/transcriptions/douyin");
+  const body = JSON.parse(bodyText(calls[0]));
+  assert.equal(body.video_url, "https://www.douyin.com/video/123");
+  assert.equal(body.duration, 95, "抖音要整数秒");
+  assert.equal(body.title, "短视频");
+  assert.deepEqual(ids, ["tsk_d"]);
+});
+
+test("平台接口：额度不足的错误信息要原样透出，不能吞成「参数错误」", async () => {
+  const { transport } = mockTransport(() =>
+    jsonResponse({ code: "E2004", message: "可用时长不足，请先充值" }, 402),
+  );
+
+  const api = new AiditingApi("https://api.test", "sk-test", transport);
+  await assert.rejects(
+    api.checkPlatform({ platform: "xhs", url: "https://xhslink.com/abc" }),
+    /可用时长不足/,
+  );
+});
 
 test("上传：multipart 结构正确，文件名里的引号被转义", async () => {
   const { transport, calls } = mockTransport(() => ({
@@ -115,4 +284,48 @@ test("轮询：失败状态直接返回，不当成还在跑", async () => {
   const task = await api.waitForTask("tsk_f", () => undefined, { intervalMs: 0 });
   assert.equal(task.status, "failed");
   assert.equal(task.errorMessage, "格式不支持");
+});
+
+/**
+ * 客户端标识：服务端靠 X-Aiditing-Client 把任务记成 obsidian。
+ *
+ * 不发的后果不是报错，而是静默降级——带着 API Key 又没自报家门的请求会被记成 api，
+ * 插件从此在「按端统计」里消失。这种错只有靠断言每个请求都带头才拦得住，
+ * 所以三个入口（上传 / 查状态 / 提交）各钉一条。
+ */
+const CLIENT_HEADER = "X-Aiditing-Client";
+
+function headerOf(req: TransportRequest, name: string): string | undefined {
+  const headers = req.headers ?? {};
+  const key = Object.keys(headers).find((k) => k.toLowerCase() === name.toLowerCase());
+  return key ? headers[key] : undefined;
+}
+
+test("客户端标识：上传、查状态、提交三条请求都带 X-Aiditing-Client", async () => {
+  const { transport, calls } = mockTransport((req) => {
+    if (req.url.includes("/check")) {
+      return jsonResponse({
+        data: { title: "某个视频", duration: "01:00", parts: [{ url: "u", title: "P1", duration: "01:00" }] },
+      });
+    }
+    if (req.url.includes("/bilibili")) {
+      return jsonResponse({ data: { task_ids: ["tsk_1"] } });
+    }
+    return jsonResponse({ data: { taskId: "tsk_1", status: "completed", text: "正文" } });
+  });
+
+  const api = new AiditingApi("https://api.test", "sk-test", transport);
+
+  await api.upload("a.mp3", "audio/mpeg", new ArrayBuffer(8));
+  await api.getTask("tsk_1");
+  const checked = await api.checkPlatform({ platform: "bilibili", url: "https://www.bilibili.com/video/BV1xx411c7mD" });
+  await api.submitPlatform(
+    { platform: "bilibili", url: "https://www.bilibili.com/video/BV1xx411c7mD" },
+    checked.parts,
+  );
+
+  assert.equal(calls.length, 4);
+  for (const call of calls) {
+    assert.equal(headerOf(call, CLIENT_HEADER), "obsidian", `${call.url} 必须带客户端标识`);
+  }
 });

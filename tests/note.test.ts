@@ -302,3 +302,87 @@ test("笔记：拿不到时间戳时明确告知，而不是静默退化", () =>
   assert.match(note, /这次的结果没有时间点/);
   assert.match(note, /只有纯文本/);
 });
+
+/**
+ * 远程视频（B站/抖音/小红书）的笔记。
+ *
+ * 关键差异：视频不在 vault 里，**没有播放器可嵌**，所以：
+ * - 不能写 `![[...]]` 嵌入
+ * - 时间点不能靠 seek.ts 跳原生播放器
+ * - B站可以退回「链接带 ?t= 跳网页」，抖音/小红书只能做位置标注
+ */
+const remoteTask = {
+  taskId: "tsk_remote",
+  status: "completed" as const,
+  textWithTimestamp: "00:00:00 - 第一句话\n00:01:30 - 第二句话",
+  text: "第一句话第二句话",
+};
+
+test("远程笔记：B站时间点写成带 ?t= 的链接，不嵌入本地媒体", () => {
+  const note = buildNote(remoteTask, {
+    sourceName: "B站视频",
+    title: "B站视频",
+    taskId: "tsk_remote",
+    apiBase: "https://api.diting.cc",
+    sectionMinutes: 10,
+    embedSource: true, // 即使是 true，远程视频也没有本地文件可嵌
+    remote: { platform: "bilibili", bvid: "BV1xx411c7mD" },
+    sourceUrl: "https://www.bilibili.com/video/BV1xx411c7mD",
+  });
+
+  assert.match(note, /\[00:01:30\]\(https:\/\/www\.bilibili\.com\/video\/BV1xx411c7mD\?t=90\)/);
+  assert.match(note, /\[00:00:00\]\(https:\/\/www\.bilibili\.com\/video\/BV1xx411c7mD\?t=0\)/);
+  assert.doesNotMatch(note, /!\[\[/, "远程视频不能生成嵌入链接");
+  assert.match(note, /source_url: "https:\/\/www\.bilibili\.com\/video\/BV1xx411c7mD"/);
+});
+
+test("远程笔记：B站多P 时间点带上分P参数", () => {
+  const note = buildNote(remoteTask, {
+    sourceName: "B站视频 第3P",
+    title: "B站视频 第3P",
+    taskId: "tsk_remote",
+    apiBase: "https://api.diting.cc",
+    sectionMinutes: 10,
+    remote: { platform: "bilibili", bvid: "BV1xx411c7mD", page: 3 },
+  });
+
+  assert.match(note, /BV1xx411c7mD\?p=3&t=90/);
+});
+
+test("远程笔记：抖音/小红书只做位置标注，不伪造跳转", () => {
+  for (const platform of ["douyin", "xhs"] as const) {
+    const note = buildNote(remoteTask, {
+      sourceName: "短视频",
+      title: "短视频",
+      taskId: "tsk_remote",
+      apiBase: "https://api.diting.cc",
+      sectionMinutes: 10,
+      remote: { platform },
+    });
+    assert.match(note, /`00:01:30`/, `${platform} 应是行内代码标注`);
+    assert.doesNotMatch(note, /\]\(http/, `${platform} 不该出现跳转链接`);
+  }
+});
+
+test("远程笔记：开头说明按平台能力区分措辞，不承诺做不到的事", () => {
+  const bili = buildNote(remoteTask, {
+    sourceName: "B站",
+    title: "B站",
+    taskId: "tsk_remote",
+    apiBase: "https://api.diting.cc",
+    sectionMinutes: 10,
+    remote: { platform: "bilibili", bvid: "BV1xx411c7mD" },
+  });
+  assert.match(bili, /点一下会跳到 B站对应的位置/);
+
+  const dy = buildNote(remoteTask, {
+    sourceName: "抖音",
+    title: "抖音",
+    taskId: "tsk_remote",
+    apiBase: "https://api.diting.cc",
+    sectionMinutes: 10,
+    remote: { platform: "douyin" },
+  });
+  assert.match(dy, /不支持跳到具体秒数/);
+  assert.doesNotMatch(dy, /点一下就会跳到那句话的原声/);
+});

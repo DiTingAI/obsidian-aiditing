@@ -119,7 +119,9 @@ export function seekTo(player: HTMLMediaElement, seconds: number): boolean {
     // seeked 表示已经解码到新位置，再等一帧让渲染层把画面刷上去
     const onSeeked = () => {
       player.removeEventListener("seeked", onSeeked);
-      requestAnimationFrame(startPlayback);
+      // 显式走 window：插件可能在弹窗（popout window）里跑，
+      // 裸 requestAnimationFrame 会落到主窗口的帧调度上（目录扫描同样会报）
+      window.requestAnimationFrame(startPlayback);
     };
     player.addEventListener("seeked", onSeeked);
 
@@ -169,8 +171,7 @@ export function attachSeekHandlers(root: HTMLElement): number {
   const playerNow = (anchor?: HTMLElement) => pickPlayer(root, anchor);
 
   let wired = 0;
-  for (const code of codes) {
-    const el = code as HTMLElement;
+  for (const el of codes) {
     if (el.dataset.aiditingSeek === "1") continue;
 
     const seconds = parseTimestamp(el.textContent ?? "");
@@ -226,13 +227,13 @@ export function inspectScope(root: ParentNode): {
     .map((c) => parseTimestamp(c.textContent ?? ""))
     .filter((n): n is number => n !== null);
   // 与 attachSeekHandlers 用同一套查找范围，否则诊断说「没播放器」而点击却能跳，只会误导排查
-  const scope =
-    root instanceof Element ? root.closest(".workspace-leaf") ?? root : root;
+  // instanceOf 而不是 instanceof：弹窗里的 DOM 来自另一个 realm，跨 window 的 instanceof 会假阴性
+  const scope = root.instanceOf(Element) ? root.closest(".workspace-leaf") ?? root : root;
   const mediaCount = findPlayers(scope).length;
   return {
     timestamps: ts.length,
     player: mediaCount > 0,
     mediaCount,
-    wired: codes.filter((c) => (c as HTMLElement).dataset.aiditingSeek === "1").length,
+    wired: codes.filter((c) => c.dataset.aiditingSeek === "1").length,
   };
 }

@@ -125,7 +125,10 @@ export class AiditingSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("写入前确认路径")
-      .setDesc("开启后，落盘前会显示最终路径，点确认才写。")
+      // 只对「一次写一篇」的本地上传生效。链接转写可能一次写十几篇，
+      // 逐篇弹窗会把人劝退，所以那条路径改为：默认写 00-Inbox、重名自动加序号、绝不覆盖。
+      // 文案必须写清适用范围，否则就是把「确认过」卖给用户。
+      .setDesc("仅本地上传生效：落盘前显示最终路径，点确认才写。链接转写不弹窗（可能一次写多篇），默认写入 00-Inbox，重名自动加序号，不会覆盖已有笔记。")
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.settings.confirmBeforeWrite).onChange(async (value) => {
           this.plugin.settings.confirmBeforeWrite = value;
