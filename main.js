@@ -170,6 +170,8 @@ Content-Type: ${mime}\r
         "Content-Type": "application/json",
         [CLIENT_HEADER]: CLIENT_NAME
       },
+      // 别在这里加 `as ArrayBuffer`：Uint8Array.buffer 的类型已经是 ArrayBufferLike，
+      // 目录扫描会把它判成「多余断言」（0.1.12 的唯一一条代码类 medium）
       body: new TextEncoder().encode(JSON.stringify(body)).buffer
     });
     const payload = parseJson(res.text);
