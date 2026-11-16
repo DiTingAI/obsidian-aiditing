@@ -1,10 +1,10 @@
 # AiDiTing（爱谛听）Obsidian 插件
 
-> Turn audio and video files in your vault into timestamped, chaptered Markdown notes.
+> Turn audio and video files in your vault — or a Bilibili / Douyin / Xiaohongshu link — into timestamped, chaptered Markdown notes.
 > Only creates new notes; never modifies existing ones.
 > Desktop only. Requires an API key from <https://aiditing.cn/workspace> (free tier: 30 minutes / month).
 
-把 Vault 里的音视频文件整理成一篇带时间戳与章节的 Markdown，落进你指定的目录。**只新增文件，不改动、不移动已有笔记。**
+把 Vault 里的音视频文件，或一个 B站 / 抖音 / 小红书链接，整理成带时间戳与章节的 Markdown，落进你指定的目录。**只新增文件，不改动、不移动已有笔记。**
 
 对应页面：<https://aiditing.cn/connect/obsidian>
 
@@ -17,14 +17,15 @@
 
 ## English
 
-AiDiTing turns audio and video files inside your vault into timestamped, chaptered Markdown notes.
+AiDiTing turns audio and video files inside your vault — or a Bilibili / Douyin / Xiaohongshu link — into timestamped, chaptered Markdown notes.
 
-- Pick an audio or video file in your vault (file menu, or command palette) and the plugin writes **one new note** into your target folder (default `00-Inbox`).
-- The note contains frontmatter (source file, duration, task ID), a summary, chapter headings, the transcript with timestamps, and a plain-text body without timestamps.
+- Pick an audio or video file in your vault (file menu, or command palette), or run **Transcribe from link** and paste a video URL, and the plugin writes **new notes** into your target folder (default `00-Inbox`).
+- A multi-part Bilibili video becomes one note per part; you tick which parts you want.
+- The note contains frontmatter (source file or source URL, duration, task ID), a summary, chapter headings, the transcript with timestamps, and a plain-text body without timestamps.
 - It **only creates new notes**. It never edits, moves, or deletes existing notes. Name collisions get a numeric suffix, for example `x.md` becomes `x-2.md`.
 - Desktop only (`isDesktopOnly: true`). It requires an API key created at <https://aiditing.cn/workspace>; the free tier is 30 minutes per month.
-- The file you select is uploaded to `api.diting.cc` for transcription. Without an API key nothing is uploaded at all. Uploaded data is not used for model training and is not shared with third parties. See the privacy section below.
-- Not supported: online video links, mobile, and updating an existing note in place.
+- Your file (or the platform link) is sent to `api.diting.cc` for transcription. Without an API key nothing is sent at all. Uploaded data is not used for model training and is not shared with third parties. See the privacy section below.
+- Not supported: links from other sites, mobile, and updating an existing note in place.
 
 Processing time depends on file length, network conditions, and the current queue. There is no fixed time promise — the interface only reports the current status.
 
@@ -34,14 +35,17 @@ Processing time depends on file length, network conditions, and the current queu
 ## 现在能做什么
 
 - 选中（或右键）一个 Vault 内的音频/视频文件 → 生成笔记，写入目标目录（默认 `00-Inbox`）
-- 写入前显示最终路径，路径可改，确认后才落盘
+- **贴链接也能整理**：命令面板运行 `从链接整理（B站 / 抖音 / 小红书）`，可直接粘贴 App 里复制出来的整段分享文案；多P 合集可勾选要哪几集，一集一篇
+- 本地上传在写入前显示最终路径，路径可改，确认后才落盘
 - 重名自动加序号（`x.md` → `x-2.md`），绝不覆盖
 - 笔记结构：YAML 前置元数据（来源、时长、任务号）→ 原媒体嵌入 → 摘要 → 按时间切的章节 → 逐句带时间戳的正文 → 去时间戳的纯文本
 - 原媒体嵌入（可关）：把 Vault 里的原音视频嵌到笔记顶部；**点正文里的 `00:12` 直接跳到该秒并播放**（阅读模式下）
 
 ## 不做什么（写在这里，免得你试完失望）
 
-- **不做链接转写**：入口只有 Vault 里的本地文件，贴不了在线视频链接
+- **链接只支持三家**：B站 / 抖音 / 小红书。别的站点（YouTube、网课平台、播客页等）请下载后走本地上传
+- **不绕过登录与付费墙**：只处理公开可访问的内容，充电专属、会员专享、私密视频会失败
+- **链接转写不弹路径确认**：可能一次写十几篇，逐篇弹窗会烦人；默认写入 `00-Inbox`，重名自动加序号，不会覆盖
 - **不写移动端**：`isDesktopOnly: true`，手机端 Obsidian 装不上，也没验证过
 - **不改已有笔记**：没有「更新原笔记」这个操作
 - **不承诺耗时**：界面只报当前状态（排队中 / 进度百分比），不显示预计完成时间——真实耗时取决于文件时长、网络与队列
