@@ -793,18 +793,19 @@ var AiditingSettingTab = class extends import_obsidian2.PluginSettingTab {
   /**
    * 声明式设置（Obsidian 1.13+）。
    *
-   * 为什么必须实现它：社区审核 2026-11-16 的那条 Warning 原话是
+   * 为什么必须实现它：社区审核 2026-11-16 的 Warning 原话是
    * 「This PluginSettingTab does not implement getSettingDefinitions(); its settings will not
    * appear in Obsidian's settings search for users on 1.13.0 or later」——
    * 也就是说只实现 display() 的插件，用户在新版设置里搜「API Key」什么都搜不到。
    *
-   * 为什么 display() 还要留着：manifest 的 minAppVersion 是 1.8.7，旧版本根本不调这个方法，
-   * 只会渲染 display()。官方文档也建议把 display() 留作旧版本的降级路径
-   * （"Only implement display() as a fallback for plugins that need to support Obsidian
-   * versions older than 1.13.0"）。
+   * 为什么不再保留 display()：1.13.0 的 API 一旦出现，审核的静态扫描
+   * （obsidianmd/no-unsupported-api）就会拿 minAppVersion 来卡——
+   * 只写 display() 是 Warning，用了 1.13 的 API 却声明 1.8.7 就是 **Error**，
+   * 直接 Failed。运行时「旧版不会调用」这个事实扫描器看不见。
+   * 所以 manifest 的 minAppVersion 已提到 1.13.0，display() 整个删除，
+   * 只留这一套；1.12 及以下用户停留在 0.1.15（功能完整，只是没有新版声明式设置）。
    *
-   * **两处文案必须一致**：改这里的名字/说明，就要同步改 display() 里对应的那一行，
-   * 否则 1.12 和 1.13 的用户看到的是两套说法。
+   * 新增/修改设置项时只改这里，别再写 display()——那会让上面的 Error 复现。
    */
   getSettingDefinitions() {
     return [
@@ -882,72 +883,6 @@ var AiditingSettingTab = class extends import_obsidian2.PluginSettingTab {
     if (!(key in store)) return;
     store[key] = normalizeSettingValue(key, value);
     return this.plugin.saveSettings();
-  }
-  /**
-   * 旧版（< 1.13.0）的渲染路径。
-   * 1.13+ 只要 getSettingDefinitions() 返回非空数组，这个方法就不会被调用。
-   */
-  display() {
-    const { containerEl } = this;
-    containerEl.empty();
-    new import_obsidian2.Setting(containerEl).setName("API Key").setDesc("\u5728\u7231\u8C1B\u542C\u5DE5\u4F5C\u53F0\u767B\u5F55\u540E\u521B\u5EFA\uFF08\u514D\u8D39\u989D\u5EA6\u6BCF\u6708 30 \u5206\u949F\uFF09\u3002\u6CA1\u6709 Key \u65F6\u63D2\u4EF6\u4E0D\u4F1A\u4E0A\u4F20\u4EFB\u4F55\u6587\u4EF6\u3002").addText(
-      (text) => text.setPlaceholder("sk-diting-...").setValue(this.plugin.settings.apiKey).onChange(async (value) => {
-        this.plugin.settings.apiKey = value.trim();
-        await this.plugin.saveSettings();
-      })
-    );
-    new import_obsidian2.Setting(containerEl).setName("\u8FD8\u6CA1\u6709 Key\uFF1F\u4E24\u6B65\u641E\u5B9A").setDesc("\u2460 \u70B9\u300C\u53BB\u521B\u5EFA\u300D\uFF0C\u5728\u5DE5\u4F5C\u53F0\u767B\u5F55\u540E\u521B\u5EFA Key \u5E76\u590D\u5236 \u2192 \u2461 \u56DE\u6765\u70B9\u300C\u4ECE\u526A\u8D34\u677F\u8BFB\u53D6\u300D\uFF0CKey \u4F1A\u81EA\u52A8\u586B\u5230\u4E0A\u9762\u3002").addButton(
-      (button) => button.setButtonText("\u53BB\u521B\u5EFA").setCta().onClick(() => {
-        window.open(CONSOLE_URL, "_blank");
-      })
-    ).addButton(
-      (button) => button.setButtonText("\u4ECE\u526A\u8D34\u677F\u8BFB\u53D6").onClick(async () => {
-        if (await this.plugin.applyApiKeyFromClipboard()) this.display();
-      })
-    );
-    new import_obsidian2.Setting(containerEl).setName("API \u5730\u5740").setDesc("\u9ED8\u8BA4 https://api.diting.cc\u3002\u9664\u975E\u6211\u4EEC\u53E6\u884C\u901A\u77E5\uFF0C\u4E0D\u8981\u6539\u8FD9\u91CC\u3002").addText(
-      (text) => text.setPlaceholder("https://api.diting.cc").setValue(this.plugin.settings.apiBase).onChange(async (value) => {
-        this.plugin.settings.apiBase = value.trim().replace(/\/+$/, "");
-        await this.plugin.saveSettings();
-      })
-    );
-    new import_obsidian2.Setting(containerEl).setName("\u7B14\u8BB0\u843D\u5E93\u76EE\u5F55").setDesc("\u751F\u6210\u7684 Markdown \u5199\u5230\u8FD9\u91CC\u3002\u76EE\u5F55\u4E0D\u5B58\u5728\u4F1A\u81EA\u52A8\u521B\u5EFA\uFF1B\u53EA\u65B0\u589E\u6587\u4EF6\uFF0C\u4E0D\u6539\u5DF2\u6709\u7B14\u8BB0\u3002").addText(
-      (text) => text.setPlaceholder("00-Inbox").setValue(this.plugin.settings.targetFolder).onChange(async (value) => {
-        this.plugin.settings.targetFolder = value.trim().replace(/^\/+|\/+$/g, "");
-        await this.plugin.saveSettings();
-      })
-    );
-    new import_obsidian2.Setting(containerEl).setName("\u7AE0\u8282\u5207\u5206\u95F4\u9694\uFF08\u5206\u949F\uFF09").setDesc("\u6309\u65F6\u95F4\u6233\u6BCF N \u5206\u949F\u5207\u4E00\u4E2A\u5C0F\u8282\uFF0C\u6807\u9898\u53D6\u8BE5\u6BB5\u7B2C\u4E00\u53E5\u3002\u586B 0 \u5219\u4E0D\u5207\u7AE0\u8282\u3002").addText(
-      (text) => text.setPlaceholder("10").setValue(String(this.plugin.settings.sectionMinutes)).onChange(async (value) => {
-        const n = Number(value);
-        this.plugin.settings.sectionMinutes = Number.isFinite(n) && n >= 0 ? Math.floor(n) : 10;
-        await this.plugin.saveSettings();
-      })
-    );
-    new import_obsidian2.Setting(containerEl).setName("\u5199\u5165\u524D\u786E\u8BA4\u8DEF\u5F84").setDesc("\u4EC5\u672C\u5730\u4E0A\u4F20\u751F\u6548\uFF1A\u843D\u76D8\u524D\u663E\u793A\u6700\u7EC8\u8DEF\u5F84\uFF0C\u70B9\u786E\u8BA4\u624D\u5199\u3002\u94FE\u63A5\u8F6C\u5199\u4E0D\u5F39\u7A97\uFF08\u53EF\u80FD\u4E00\u6B21\u5199\u591A\u7BC7\uFF09\uFF0C\u9ED8\u8BA4\u5199\u5165 00-Inbox\uFF0C\u91CD\u540D\u81EA\u52A8\u52A0\u5E8F\u53F7\uFF0C\u4E0D\u4F1A\u8986\u76D6\u5DF2\u6709\u7B14\u8BB0\u3002").addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.confirmBeforeWrite).onChange(async (value) => {
-        this.plugin.settings.confirmBeforeWrite = value;
-        await this.plugin.saveSettings();
-      })
-    );
-    new import_obsidian2.Setting(containerEl).setName("\u751F\u6210\u540E\u6253\u5F00\u7B14\u8BB0").addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.openAfterCreate).onChange(async (value) => {
-        this.plugin.settings.openAfterCreate = value;
-        await this.plugin.saveSettings();
-      })
-    );
-    new import_obsidian2.Setting(containerEl).setName("\u7B14\u8BB0\u9876\u90E8\u5D4C\u5165\u539F\u5A92\u4F53").setDesc(
-      "\u628A\u539F\u97F3\u89C6\u9891\u5D4C\u8FDB\u7B14\u8BB0\uFF0C\u65B9\u4FBF\u5BF9\u7167\u9010\u53E5\u65F6\u95F4\u70B9\u62D6\u52A8\u65F6\u95F4\u8F74\u56DE\u542C\u3002\u5173\u6389\u5219\u53EA\u4FDD\u7559 frontmatter \u91CC\u7684 source \u6EAF\u6E90\u4FE1\u606F\u3002"
-    ).addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.embedSource).onChange(async (value) => {
-        this.plugin.settings.embedSource = value;
-        await this.plugin.saveSettings();
-      })
-    );
-    containerEl.createEl("p", {
-      text: "\u8BF4\u660E\uFF1A\u6574\u7406\u7ED3\u679C\u662F\u4E00\u4EFD\u53EF\u6539\u7684\u521D\u7A3F\uFF0C\u4E0D\u662F\u7EC8\u7A3F\uFF1B\u5B9E\u9645\u8017\u65F6\u53D6\u51B3\u4E8E\u6587\u4EF6\u65F6\u957F\u3001\u7F51\u7EDC\u4E0E\u5F53\u524D\u961F\u5217\uFF0C\u63D2\u4EF6\u4E0D\u663E\u793A\u9884\u8BA1\u5B8C\u6210\u65F6\u95F4\u3002",
-      cls: "setting-item-description"
-    });
   }
 };
 

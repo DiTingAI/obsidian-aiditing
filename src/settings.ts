@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab } from "obsidian";
 import type { SettingDefinitionItem } from "obsidian";
 import type AiditingPlugin from "./main";
 import { normalizeSettingValue, validateSetting, type SettingKey } from "./settings-values";
@@ -51,18 +51,19 @@ export class AiditingSettingTab extends PluginSettingTab {
   /**
    * 声明式设置（Obsidian 1.13+）。
    *
-   * 为什么必须实现它：社区审核 2026-11-16 的那条 Warning 原话是
+   * 为什么必须实现它：社区审核 2026-11-16 的 Warning 原话是
    * 「This PluginSettingTab does not implement getSettingDefinitions(); its settings will not
    * appear in Obsidian's settings search for users on 1.13.0 or later」——
    * 也就是说只实现 display() 的插件，用户在新版设置里搜「API Key」什么都搜不到。
    *
-   * 为什么 display() 还要留着：manifest 的 minAppVersion 是 1.8.7，旧版本根本不调这个方法，
-   * 只会渲染 display()。官方文档也建议把 display() 留作旧版本的降级路径
-   * （"Only implement display() as a fallback for plugins that need to support Obsidian
-   * versions older than 1.13.0"）。
+   * 为什么不再保留 display()：1.13.0 的 API 一旦出现，审核的静态扫描
+   * （obsidianmd/no-unsupported-api）就会拿 minAppVersion 来卡——
+   * 只写 display() 是 Warning，用了 1.13 的 API 却声明 1.8.7 就是 **Error**，
+   * 直接 Failed。运行时「旧版不会调用」这个事实扫描器看不见。
+   * 所以 manifest 的 minAppVersion 已提到 1.13.0，display() 整个删除，
+   * 只留这一套；1.12 及以下用户停留在 0.1.15（功能完整，只是没有新版声明式设置）。
    *
-   * **两处文案必须一致**：改这里的名字/说明，就要同步改 display() 里对应的那一行，
-   * 否则 1.12 和 1.13 的用户看到的是两套说法。
+   * 新增/修改设置项时只改这里，别再写 display()——那会让上面的 Error 复现。
    */
   getSettingDefinitions(): SettingDefinitionItem[] {
     return [
@@ -146,124 +147,4 @@ export class AiditingSettingTab extends PluginSettingTab {
     return this.plugin.saveSettings();
   }
 
-  /**
-   * 旧版（< 1.13.0）的渲染路径。
-   * 1.13+ 只要 getSettingDefinitions() 返回非空数组，这个方法就不会被调用。
-   */
-  display(): void {
-    const { containerEl } = this;
-    containerEl.empty();
-
-    // Key 的名称与获取路径是上架前的硬性前提：
-    // 从前写「内测 Key，单独发放」，市场用户装完拿不到，只能给差评。
-    new Setting(containerEl)
-      .setName("API Key")
-      .setDesc("在爱谛听工作台登录后创建（免费额度每月 30 分钟）。没有 Key 时插件不会上传任何文件。")
-      .addText((text) =>
-        text
-          .setPlaceholder("sk-diting-...")
-          .setValue(this.plugin.settings.apiKey)
-          .onChange(async (value) => {
-            this.plugin.settings.apiKey = value.trim();
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName("还没有 Key？两步搞定")
-      .setDesc("① 点「去创建」，在工作台登录后创建 Key 并复制 → ② 回来点「从剪贴板读取」，Key 会自动填到上面。")
-      .addButton((button) =>
-        button
-          .setButtonText("去创建")
-          .setCta()
-          .onClick(() => {
-            window.open(CONSOLE_URL, "_blank");
-          }),
-      )
-      .addButton((button) =>
-        button.setButtonText("从剪贴板读取").onClick(async () => {
-          // 读成功了才重绘：否则输入框会闪一下，用户以为没生效
-          if (await this.plugin.applyApiKeyFromClipboard()) this.display();
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName("API 地址")
-      .setDesc("默认 https://api.diting.cc。除非我们另行通知，不要改这里。")
-      .addText((text) =>
-        text
-          .setPlaceholder("https://api.diting.cc")
-          .setValue(this.plugin.settings.apiBase)
-          .onChange(async (value) => {
-            this.plugin.settings.apiBase = value.trim().replace(/\/+$/, "");
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName("笔记落库目录")
-      .setDesc("生成的 Markdown 写到这里。目录不存在会自动创建；只新增文件，不改已有笔记。")
-      .addText((text) =>
-        text
-          .setPlaceholder("00-Inbox")
-          .setValue(this.plugin.settings.targetFolder)
-          .onChange(async (value) => {
-            this.plugin.settings.targetFolder = value.trim().replace(/^\/+|\/+$/g, "");
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName("章节切分间隔（分钟）")
-      .setDesc("按时间戳每 N 分钟切一个小节，标题取该段第一句。填 0 则不切章节。")
-      .addText((text) =>
-        text
-          .setPlaceholder("10")
-          .setValue(String(this.plugin.settings.sectionMinutes))
-          .onChange(async (value) => {
-            const n = Number(value);
-            this.plugin.settings.sectionMinutes = Number.isFinite(n) && n >= 0 ? Math.floor(n) : 10;
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName("写入前确认路径")
-      // 只对「一次写一篇」的本地上传生效。链接转写可能一次写十几篇，
-      // 逐篇弹窗会把人劝退，所以那条路径改为：默认写 00-Inbox、重名自动加序号、绝不覆盖。
-      // 文案必须写清适用范围，否则就是把「确认过」卖给用户。
-      .setDesc("仅本地上传生效：落盘前显示最终路径，点确认才写。链接转写不弹窗（可能一次写多篇），默认写入 00-Inbox，重名自动加序号，不会覆盖已有笔记。")
-      .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.confirmBeforeWrite).onChange(async (value) => {
-          this.plugin.settings.confirmBeforeWrite = value;
-          await this.plugin.saveSettings();
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName("生成后打开笔记")
-      .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.openAfterCreate).onChange(async (value) => {
-          this.plugin.settings.openAfterCreate = value;
-          await this.plugin.saveSettings();
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName("笔记顶部嵌入原媒体")
-      .setDesc(
-        "把原音视频嵌进笔记，方便对照逐句时间点拖动时间轴回听。关掉则只保留 frontmatter 里的 source 溯源信息。",
-      )
-      .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.embedSource).onChange(async (value) => {
-          this.plugin.settings.embedSource = value;
-          await this.plugin.saveSettings();
-        }),
-      );
-
-    containerEl.createEl("p", {
-      text: "说明：整理结果是一份可改的初稿，不是终稿；实际耗时取决于文件时长、网络与当前队列，插件不显示预计完成时间。",
-      cls: "setting-item-description",
-    });
-  }
 }
