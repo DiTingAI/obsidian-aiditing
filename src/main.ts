@@ -599,7 +599,9 @@ class LinkTranscribeModal extends Modal {
         if (box.checked) this.checked.add(part.page);
         else this.checked.delete(part.page);
       });
-      row.createEl("span", { text: ` P${part.page} ${part.title}（${part.durationText}）` });
+      // 用 createSpan 而不是 createEl("span")：Obsidian 对 span/div 提供了专用助手，
+      // 目录扫描的 obsidianmd/prefer-create-el 只认专用助手（createEl("p") 没有对应助手，所以不报）
+      row.createSpan({ text: ` P${part.page} ${part.title}（${part.durationText}）` });
     }
   }
 

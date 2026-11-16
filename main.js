@@ -1248,7 +1248,7 @@ var LinkTranscribeModal = class extends import_obsidian3.Modal {
         if (box.checked) this.checked.add(part.page);
         else this.checked.delete(part.page);
       });
-      row.createEl("span", { text: ` P${part.page} ${part.title}\uFF08${part.durationText}\uFF09` });
+      row.createSpan({ text: ` P${part.page} ${part.title}\uFF08${part.durationText}\uFF09` });
     }
   }
   async doSubmit() {
