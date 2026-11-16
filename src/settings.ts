@@ -28,6 +28,14 @@ export interface AiditingSettings {
    * 同一页放一个播放器，用户才能「看一句、拖一下、听一句」地把稿子核对完。
    */
   embedSource: boolean;
+  /**
+   * 在笔记末尾留一行来源（默认开）。
+   *
+   * 这是插件唯一的自传播位：用户的每篇笔记都可能被打开、分享、导进别的库，
+   * 但**必须能关**——往用户的笔记里写东西，得给一个明确的退出开关，
+   * 否则迟早被当成硬广投诉（Obsidian 用户对这类东西很敏感）。
+   */
+  noteFooter: boolean;
 }
 
 export const DEFAULT_SETTINGS: AiditingSettings = {
@@ -38,6 +46,7 @@ export const DEFAULT_SETTINGS: AiditingSettings = {
   confirmBeforeWrite: true,
   openAfterCreate: true,
   embedSource: true,
+  noteFooter: true,
 };
 
 export class AiditingSettingTab extends PluginSettingTab {
@@ -125,6 +134,11 @@ export class AiditingSettingTab extends PluginSettingTab {
         name: "笔记顶部嵌入原媒体",
         desc: "把原音视频嵌进笔记，方便对照逐句时间点拖动时间轴回听。关掉则只保留 frontmatter 里的 source 溯源信息。",
         control: { type: "toggle", key: "embedSource" },
+      },
+      {
+        name: "笔记末尾留一行来源",
+        desc: "生成的笔记最后会有一行「由 AiDiTing 生成」的链接，方便你回头找到原始任务。不需要就关掉——不用这个功能也不影响转写与笔记内容。",
+        control: { type: "toggle", key: "noteFooter" },
       },
       {
         name: "关于耗时与初稿",

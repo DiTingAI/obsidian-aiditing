@@ -461,6 +461,7 @@ function platformLabel(platform) {
 }
 
 // src/note.ts
+var NOTE_FOOTER_URL = "https://aiditing.cn/?from=obsidian&c=note-footer";
 var BRACKETED_LINE = /^\[\s*(\d{1,2}:\d{2}(?::\d{2})?)(?:\.\d{1,3})?\s*(?:-->|[-–~])?\s*(?:\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?)?\s*\]\s*(.*)$/;
 var BARE_LINE = /^(\d{1,2}:\d{2}(?::\d{2})?)(?:\.\d{1,3})?\s*(?:-->|[-–~])\s*(?:\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?)?\s*(.*)$/;
 function parseTimedLines(raw) {
@@ -578,6 +579,9 @@ function buildNote(task, meta) {
   }
   if (timed.length > 0 && plain) {
     body.push("## \u7EAF\u6587\u672C\uFF08\u53BB\u6389\u65F6\u95F4\u6233\uFF0C\u4FBF\u4E8E\u590D\u5236\uFF09", "", plain, "");
+  }
+  if (meta.footer) {
+    body.push("", `> \u7531 [AiDiTing](${NOTE_FOOTER_URL}) \u751F\u6210\uFF0C\u53EF\u5728\u63D2\u4EF6\u91CC\u91CD\u65B0\u6253\u5F00\u8FD9\u6761\u4EFB\u52A1\u3002`, "");
   }
   return `${front.join("\n")}
 ${body.join("\n").trimEnd()}
@@ -783,7 +787,8 @@ var DEFAULT_SETTINGS = {
   sectionMinutes: 10,
   confirmBeforeWrite: true,
   openAfterCreate: true,
-  embedSource: true
+  embedSource: true,
+  noteFooter: true
 };
 var AiditingSettingTab = class extends import_obsidian2.PluginSettingTab {
   constructor(app, plugin) {
@@ -866,6 +871,11 @@ var AiditingSettingTab = class extends import_obsidian2.PluginSettingTab {
         name: "\u7B14\u8BB0\u9876\u90E8\u5D4C\u5165\u539F\u5A92\u4F53",
         desc: "\u628A\u539F\u97F3\u89C6\u9891\u5D4C\u8FDB\u7B14\u8BB0\uFF0C\u65B9\u4FBF\u5BF9\u7167\u9010\u53E5\u65F6\u95F4\u70B9\u62D6\u52A8\u65F6\u95F4\u8F74\u56DE\u542C\u3002\u5173\u6389\u5219\u53EA\u4FDD\u7559 frontmatter \u91CC\u7684 source \u6EAF\u6E90\u4FE1\u606F\u3002",
         control: { type: "toggle", key: "embedSource" }
+      },
+      {
+        name: "\u7B14\u8BB0\u672B\u5C3E\u7559\u4E00\u884C\u6765\u6E90",
+        desc: "\u751F\u6210\u7684\u7B14\u8BB0\u6700\u540E\u4F1A\u6709\u4E00\u884C\u300C\u7531 AiDiTing \u751F\u6210\u300D\u7684\u94FE\u63A5\uFF0C\u65B9\u4FBF\u4F60\u56DE\u5934\u627E\u5230\u539F\u59CB\u4EFB\u52A1\u3002\u4E0D\u9700\u8981\u5C31\u5173\u6389\u2014\u2014\u4E0D\u7528\u8FD9\u4E2A\u529F\u80FD\u4E5F\u4E0D\u5F71\u54CD\u8F6C\u5199\u4E0E\u7B14\u8BB0\u5185\u5BB9\u3002",
+        control: { type: "toggle", key: "noteFooter" }
       },
       {
         name: "\u5173\u4E8E\u8017\u65F6\u4E0E\u521D\u7A3F",
@@ -1128,7 +1138,8 @@ ${text.slice(0, 400)}`, 2e4)
         taskId,
         apiBase: this.settings.apiBase,
         sectionMinutes: this.settings.sectionMinutes,
-        embedSource: this.settings.embedSource
+        embedSource: this.settings.embedSource,
+        footer: this.settings.noteFooter
       });
       const proposed = this.buildPath(file);
       const target = this.settings.confirmBeforeWrite ? await this.confirmPath(proposed) : proposed;
@@ -1208,7 +1219,8 @@ ${text.slice(0, 400)}`, 2e4)
             // 单P 不带分P参数，否则链接里会多一个 ?p=1
             page: parts.length > 1 ? part == null ? void 0 : part.page : void 0
           },
-          sourceUrl: (part == null ? void 0 : part.url) || match.url
+          sourceUrl: (part == null ? void 0 : part.url) || match.url,
+          footer: this.settings.noteFooter
         });
         const target = this.buildPathForTitle(title);
         const folder = (0, import_obsidian3.normalizePath)(target.split("/").slice(0, -1).join("/") || "/");

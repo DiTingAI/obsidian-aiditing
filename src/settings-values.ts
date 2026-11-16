@@ -14,7 +14,8 @@ export type SettingKey =
   | "sectionMinutes"
   | "confirmBeforeWrite"
   | "openAfterCreate"
-  | "embedSource";
+  | "embedSource"
+  | "noteFooter";
 
 /** 把控件给的原始值收敛成能直接落盘的值 */
 export function normalizeSettingValue(key: SettingKey, value: unknown): string | number | boolean {

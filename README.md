@@ -2,7 +2,22 @@
 
 > Turn audio and video files in your vault — or a Bilibili / Douyin / Xiaohongshu link — into timestamped, chaptered Markdown notes.
 > Only creates new notes; never modifies existing ones.
-> Desktop only. Requires an API key from <https://aiditing.cn/workspace> (free tier: 30 minutes / month).
+> Desktop only. Requires an API key from <https://aiditing.cn/workspace?from=obsidian&c=github-readme> (free tier: 30 minutes / month).
+
+---
+
+## 中文说明
+
+把 Vault 里的音视频，或 **B站 / 抖音 / 小红书的链接**，转成带时间戳、自动分章节的 Markdown 笔记。
+
+- **逐句时间点**：本地文件点一下就跳到原声（同页播放器跟着走），B站视频跳到网页对应位置
+- **B站多P 合集整季提交**：一次勾选多集，每集生成一篇笔记，标题不会串
+- **只新建，不改动**：不会碰你已有的任何笔记；重名自动加序号
+- **原文可溯源**：frontmatter 里记着任务号与源链接，删除笔记也不影响已生成的内容
+
+免费额度 30 分钟/月，API Key 在 <https://aiditing.cn/workspace?from=obsidian&c=github-readme> 创建（扫码登录，不用注册表单）。
+
+仅支持**桌面版** Obsidian（插件需要访问本地文件系统）。
 
 Chinese documentation is further down: [中文说明](#中文说明).
 

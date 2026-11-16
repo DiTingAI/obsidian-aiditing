@@ -386,3 +386,60 @@ test("远程笔记：开头说明按平台能力区分措辞，不承诺做不�
   assert.match(dy, /不支持跳到具体秒数/);
   assert.doesNotMatch(dy, /点一下就会跳到那句话的原声/);
 });
+
+/**
+ * 来源行（noteFooter）。
+ *
+ * 这是插件唯一的自传播位：用户生成的每篇笔记都可能被打开、分享、导进别的库。
+ * 两条约束必须钉住：
+ *   1. 必须带 `from=obsidian&c=note-footer`——不带参数就归因不到这条渠道（项目铁律第八节）；
+ *   2. 必须能完全关掉——往用户笔记里写东西，没有退出开关迟早被投诉。
+ */
+test("来源行：开启时出现在笔记最后，并带渠道归因参数", () => {
+  const note = buildNote(
+    {
+      taskId: "tsk_footer",
+      status: "completed",
+      textWithTimestamp: "[00:05] 第一句\n[00:40] 第二句",
+      text: "第一句 第二句",
+    },
+    {
+      sourceName: "clip.mp3",
+      title: "clip",
+      taskId: "tsk_footer",
+      apiBase: "https://api.diting.cc",
+      sectionMinutes: 10,
+      footer: true,
+    },
+  );
+
+  assert.match(note, /由 \[AiDiTing\]\(https:\/\/aiditing\.cn\/\?from=obsidian&c=note-footer\) 生成/);
+  // 必须在最后：插到正文中间会打断逐句时间点的阅读
+  const tail = note.trimEnd().split("\n").at(-1) ?? "";
+  assert.match(tail, /AiDiTing/, "来源行应该是最后一行内容");
+  // 不能写进 frontmatter，否则会污染 YAML
+  const frontmatter = note.split("---")[1];
+  assert.doesNotMatch(frontmatter, /AiDiTing/);
+});
+
+test("来源行：关闭后一个字都不出现", () => {
+  const note = buildNote(
+    {
+      taskId: "tsk_nofooter",
+      status: "completed",
+      textWithTimestamp: "[00:05] 第一句",
+      text: "第一句",
+    },
+    {
+      sourceName: "clip.mp3",
+      title: "clip",
+      taskId: "tsk_nofooter",
+      apiBase: "https://api.diting.cc",
+      sectionMinutes: 10,
+      footer: false,
+    },
+  );
+
+  assert.ok(!note.includes("AiDiTing"), "关掉开关后不该残留品牌名");
+  assert.ok(!note.includes("aiditing.cn"), "关掉开关后不该残留链接");
+});

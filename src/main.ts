@@ -329,6 +329,7 @@ export default class AiditingPlugin extends Plugin {
         apiBase: this.settings.apiBase,
         sectionMinutes: this.settings.sectionMinutes,
         embedSource: this.settings.embedSource,
+        footer: this.settings.noteFooter,
       });
 
       const proposed = this.buildPath(file);
@@ -426,6 +427,7 @@ export default class AiditingPlugin extends Plugin {
             page: parts.length > 1 ? part?.page : undefined,
           },
           sourceUrl: part?.url || match.url,
+          footer: this.settings.noteFooter,
         });
 
         const target = this.buildPathForTitle(title);

@@ -1,9 +1,9 @@
 {
   "id": "aiditing",
   "name": "AiDiTing",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "minAppVersion": "1.13.0",
-  "description": "Turn audio/video files in your vault, or Bilibili / Douyin / Xiaohongshu links, into timestamped, chaptered Markdown notes. Only creates new notes; never modifies existing ones.",
+  "description": "Transcribe audio/video files or Bilibili / Douyin / Xiaohongshu links into timestamped Markdown notes with chapters. 视频转文字、B站视频做笔记、课程与会议录音转逐字稿，带时间戳跳转。Only creates new notes. Free 30 min/month.",
   "author": "AiDiTing",
   "authorUrl": "https://aiditing.cn",
   "isDesktopOnly": true

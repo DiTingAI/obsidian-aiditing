@@ -40,7 +40,23 @@ export interface NoteMeta {
   remote?: RemoteVideo;
   /** 原视频链接，写进 frontmatter 便于以后回到源视频 */
   sourceUrl?: string;
+  /**
+   * 是否在末尾留一行来源（默认关，由设置项 noteFooter 显式开启）。
+   *
+   * 放在**正文之后**、独立成行，不碰 frontmatter、不进任何小节，
+   * 用户删掉它不会影响笔记结构；关掉开关就完全不存在。
+   */
+  footer?: boolean;
 }
+
+/**
+ * 笔记末尾的来源链接。
+ *
+ * 带 `from` / `c` 是项目铁律第八节：对外链接不带归因参数，这次传播就无法归因。
+ * 用户把笔记分享出去、别人点进来，我们要能分清这是「笔记底部」带来的，
+ * 还是软文/服务号带来的——否则做再多分发也不知道哪条路有效。
+ */
+export const NOTE_FOOTER_URL = "https://aiditing.cn/?from=obsidian&c=note-footer";
 
 export interface TimedLine {
   /** 原样的时间戳文本，如 00:12 或 1:02:30 */
@@ -224,6 +240,12 @@ export function buildNote(task: TaskView, meta: NoteMeta): string {
   // 带时间戳的正文适合核对，纯文本适合复制粘贴。两个都给，别让用户自己洗格式。
   if (timed.length > 0 && plain) {
     body.push("## 纯文本（去掉时间戳，便于复制）", "", plain, "");
+  }
+
+  // 来源行放最后：不打断阅读，删掉也不破坏结构。
+  // 措辞写「能干什么」（回到原始任务）而不是品牌口号——笔记是用户的，不是我们的广告位。
+  if (meta.footer) {
+    body.push("", `> 由 [AiDiTing](${NOTE_FOOTER_URL}) 生成，可在插件里重新打开这条任务。`, "");
   }
 
   return `${front.join("\n")}\n${body.join("\n").trimEnd()}\n`;
