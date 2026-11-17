@@ -1,8 +1,9 @@
 # AiDiTing — Obsidian plugin
 
-![点一下笔记里的时间点，跳回 B站 原片那一秒](https://raw.githubusercontent.com/DiTingAI/obsidian-aiditing/main/assets/demo-timestamp.gif)
+![插件写进 Vault 的一篇笔记：YAML 属性、按时间切的章节、逐句时间戳](https://aiditing.cn/help/obsidian/07-timestamp.gif)
 
-*Click a timestamp in a generated note → the Bilibili video jumps to that second. 点一下笔记里的时间点，就跳回原片那一秒。*
+*A note the plugin writes into your vault — YAML frontmatter, time-based chapters, per-sentence timestamps. Click a timestamp and the video jumps to that second.*
+*这是插件写进你 Vault 的一篇笔记：YAML 属性、按时间切的章节、逐句时间戳，点一下时间点就跳回原片那一秒。*
 
 > Turn audio and video files in your vault — or a Bilibili / Douyin / Xiaohongshu link — into timestamped, chaptered Markdown notes.
 > Only creates new notes; never modifies existing ones.
