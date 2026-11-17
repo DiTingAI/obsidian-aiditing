@@ -68,7 +68,7 @@ License: MIT (see [LICENSE](./LICENSE)). The `main.js` in this repository is a b
 
 把 Vault 里的音视频文件，或一个 B站 / 抖音 / 小红书链接，整理成带时间戳与章节的 Markdown，落进你指定的目录。**只新增文件，不改动、不移动已有笔记。**
 
-对应页面：<https://aiditing.cn/connect/obsidian>
+对应页面：<https://aiditing.cn/connect/obsidian?from=obsidian&c=github-readme>
 
 ### 第一次用：两步
 
@@ -142,7 +142,7 @@ License: MIT (see [LICENSE](./LICENSE)). The `main.js` in this repository is a b
 
 | 设置 | 默认 | 说明 |
 |---|---|---|
-| API Key | 空 | 在[工作台](https://aiditing.cn/workspace)登录后创建；为空时不允许执行任务，也不会上传任何文件 |
+| API Key | 空 | 在[工作台](https://aiditing.cn/workspace?from=obsidian&c=github-readme)登录后创建；为空时不允许执行任务，也不会上传任何文件 |
 | API 地址 | `https://api.diting.cc` | 除非另行通知，不要改 |
 | 笔记落库目录 | `00-Inbox` | 不存在会自动创建 |
 | 章节切分间隔 | 10 分钟 | 填 0 则整篇一节 |
@@ -155,4 +155,47 @@ License: MIT (see [LICENSE](./LICENSE)). The `main.js` in this repository is a b
 - `从 Vault 里选一个音视频整理` —— 弹选择框
 - `从链接整理（B站 / 抖音 / 小红书）` —— 粘贴链接或整段分享文案
 - 文件列表右键 → `爱谛听：整理成笔记`
+
+## FAQ / 常见问题
+
+**能转 B站多P 合集吗？ / Multi-part Bilibili videos?**
+能。一次勾选多集，每集生成一篇独立笔记，标题不会串。
+Yes — one note per part, and you tick which parts you want.
+
+**会议录音、网课视频能转成文字吗？ / Meeting recordings and online course videos?**
+能。Vault 里的任何本地音视频都可以（mp3 / mp4 / m4a / wav 等），不限于链接。
+Yes — any local audio or video file in your vault.
+
+**支持 YouTube、网课平台、播客页的链接吗？ / YouTube, course platforms, podcast pages?**
+不支持链接直转，请下载后走本地上传。
+No link support for those platforms. Download the file and upload it locally instead.
+
+**会覆盖或改动我已有的笔记吗？ / Will it overwrite existing notes?**
+不会。只新建文件，重名自动加序号（`x.md` → `x-2.md`）。
+Never. It only creates new notes.
+
+**免费吗？ / Is it free?**
+每月 30 分钟免费额度，足够跑完整流程再决定。
+Free tier: 30 minutes per month.
+
+**文件传到哪儿？ / Where is my file uploaded?**
+传到我们自己的服务器（`api.diting.cc`），只用于生成这一次的转写结果，不用于模型训练、不转售、不分享给第三方。
+To our own server, only to produce that one transcript.
+
+**手机端能用吗？ / Mobile support?**
+不能。仅桌面版 Obsidian（`isDesktopOnly: true`）。
+Desktop only.
+
+**点时间戳没反应？ / Timestamp jumping does not work?**
+只在**阅读模式**（Reading view）生效。Live Preview 下时间点是编辑器里的纯文本，不是 DOM 元素，挂不上点击事件；另外笔记里需要有嵌入的原音视频。
+Reading view only. In Live Preview the timestamp is plain editor text, not a DOM element.
+
+**有行为埋点吗？ / Any analytics?**
+没有。插件不向任何第三方发送统计，服务端只知道「有一个任务来自插件」，用于算额度与排查问题。
+No analytics or telemetry.
+
+## 相关产品 / Related
+
+- 不装 Obsidian，只想把视频转成文字：<https://diting.cc/?from=obsidian&c=github-readme>
+- 想把视频沉淀成可检索的知识库：<https://ditingyun.cn/?from=obsidian&c=github-readme>
 
