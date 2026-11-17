@@ -6,9 +6,11 @@
 
 ---
 
-## 中文说明
+## 中文说明（速览）
 
 把 Vault 里的音视频，或 **B站 / 抖音 / 小红书的链接**，转成带时间戳、自动分章节的 Markdown 笔记。
+
+> 完整中文文档（配置项、命令、隐私说明）见下方「安装」之后的内容。
 
 - **逐句时间点**：本地文件点一下就跳到原声（同页播放器跟着走），B站视频跳到网页对应位置
 - **B站多P 合集整季提交**：一次勾选多集，每集生成一篇笔记，标题不会串
@@ -154,55 +156,3 @@ License: MIT (see [LICENSE](./LICENSE)). The `main.js` in this repository is a b
 - `从链接整理（B站 / 抖音 / 小红书）` —— 粘贴链接或整段分享文案
 - 文件列表右键 → `爱谛听：整理成笔记`
 
-### 构建
-
-```bash
-cd integrations/obsidian
-npm install
-npm run build     # tsc --noEmit + esbuild 产出 main.js
-npm test          # 单测：时间戳解析 / 章节切分 / YAML 转义 / multipart 拼装 / 任务号解析
-./scripts/package.sh   # 打成 dist/aiditing-0.1.0.zip（本地分发包，手动装用）
-```
-
-产物是根目录的 `main.js`，和 `manifest.json`、`styles.css` 一起构成插件包。
-
-#### 发布到社区市场
-
-产物要同步到独立仓库 <https://github.com/DiTingAI/obsidian-aiditing>（市场要求「插件仓库根目录即插件」），
-由脚本完成构建、校验、推送、建 Release：
-
-```bash
-GITHUB_TOKEN=ghp_xxx ./scripts/release-obsidian.sh          # 发布
-./scripts/release-obsidian.sh --dry-run                     # 只构建校验
-```
-
-脚本会拦下四种常见翻车：`manifest.version` 与 Release tag 不一致、`versions.json` 漏收录新版本、
-`main.js` 把依赖误打进来（>3MB）、产物里混入 `localhost` 地址。另外它会先探测发布仓库是否 **Public**——
-Private 仓库的 Release 资产客户端下载不到，用户装不上。
-
-脚本除了产物，还会把 `src/`、`tests/`、`scripts/` 和构建配置一起同步过去——市场审核要能在仓库里读到源码，
-只给 Release 附件是不够的。发布仓库因此有自己的一份 `.gitignore`（只挡 `node_modules/`、`dist/`），
-不能沿用项目根目录那份，否则 `main.js` 会被忽略、进不了仓库。
-
-上架提交入口是 <https://community.obsidian.md>（用 Obsidian 账号登录并关联 GitHub，再「Add your plugin」），
-不需要再向 `obsidianmd/obsidian-releases` 提 PR，那个仓库的 PR 入口已经关闭。
-
-#### 冒烟（不用打开 Obsidian）
-
-接口契约最容易变的地方（上传返回多套一层、任务号藏在 `duplicate_files`、字段改名），
-在 Obsidian 里手点很难定位。用真实 Key 跑一遍 Node 脚本，几秒钟出结果：
-
-```bash
-AIDITING_KEY=sk-diting-xxx npx tsx scripts/smoke.ts /path/to/lecture.mp3 --out /tmp
-```
-
-它会打印进度、把生成的 Markdown 写到 `/tmp`，并报出正文字数、章节数、时间戳行数。
-
-### 实现要点（给后面接手的人）
-
-- 走 `/v1` 开放 API（`Authorization: Bearer <key>`），不是网页端接口：网页端要 JWT，等于把真实账号凭证塞进插件
-- 上传用 `requestUrl` + 手工拼 multipart：Obsidian 的 `requestUrl` 只接受 `string | ArrayBuffer`，没有 FormData
-- 上传接口的返回比状态接口**多一层嵌套**（`data.data.task_ids`），解析时两层都要扫，否则拿不到任务号
-- 内容去重命中时 `task_ids` 为 null，任务号藏在 `duplicate_files[].existing_task_id` 里——复用它，别让用户卡在「已上传过」的死路
-- 时间戳解析不出来时**不编造章节**，退化成纯文本段落
-- 每个请求都带 `X-Aiditing-Client: obsidian`：后端拿它给任务打「来源终端」标记，用来区分插件与网页端的用量（不影响任何功能，旧后端会忽略这个头）
