@@ -36,6 +36,14 @@ export interface AiditingSettings {
    * 否则迟早被当成硬广投诉（Obsidian 用户对这类东西很敏感）。
    */
   noteFooter: boolean;
+  /**
+   * 首启引导弹窗是否已经弹过（内部状态，不在设置面板里显示）。
+   *
+   * 为什么要这个标记：没配 Key 的人每次启动 Obsidian 都会被弹一次，
+   * 弹到第三次就变成「这插件老弹广告」。弹窗只负责第一次把路指清楚，
+   * 之后的提醒交给设置页里那条常驻提示（见 getSettingDefinitions）。
+   */
+  onboardingNoticeShown: boolean;
 }
 
 export const DEFAULT_SETTINGS: AiditingSettings = {
@@ -47,6 +55,7 @@ export const DEFAULT_SETTINGS: AiditingSettings = {
   openAfterCreate: true,
   embedSource: true,
   noteFooter: true,
+  onboardingNoticeShown: false,
 };
 
 export class AiditingSettingTab extends PluginSettingTab {
@@ -82,8 +91,12 @@ export class AiditingSettingTab extends PluginSettingTab {
         control: { type: "text", key: "apiKey", placeholder: "sk-diting-..." },
       },
       {
-        name: "还没有 Key？两步搞定",
-        desc: "① 点「去创建」，在工作台登录后创建 Key 并复制 → ② 回来点「从剪贴板读取」，Key 会自动填到上面。",
+        // 未配 Key 时这一条就是「常驻状态卡片」：首启弹窗只弹一次（见 main.ts），
+        // 用户主动翻进设置时，得有一个地方明确告诉他现在还不能用、卡在哪一步。
+        name: this.plugin.settings.apiKey ? "更换 API Key" : "⚠ 还没有配置 Key —— 现在还不能整理",
+        desc: this.plugin.settings.apiKey
+          ? "已配置。要更换时点「去创建」重新生成一把，再点「从剪贴板读取」。"
+          : "没有 Key 时插件不会发出任何请求。① 点「去创建」，在工作台登录后创建 Key 并复制 → ② 回来点「从剪贴板读取」，Key 会自动填到上面。每月免费 30 分钟。",
         // 声明式渲染给的是一行空 Setting，正好把两个按钮挂上去；
         // 不用 action 类型：那会让整行变成可点击区域，用户点说明文字也会跳走。
         render: (setting) => {

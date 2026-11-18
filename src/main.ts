@@ -54,8 +54,14 @@ export default class AiditingPlugin extends Plugin {
     // 装完第一眼就该看到「下一步做什么」，而不是先失败一次。
     this.app.workspace.onLayoutReady(() => {
       if (this.settings.apiKey) return;
+      // 只弹一次。没配 Key 的人每次启动都被弹一遍，弹到第三次就成了「这插件老弹窗」，
+      // 提醒变成反感。弹窗负责第一次把路指清楚，之后的提醒交给设置页里那条常驻提示
+      // （settings.ts 的「还没有配置 Key」一项），两边接力才不至于「错过一次就再没有入口」。
+      if (this.settings.onboardingNoticeShown) return;
+      this.settings.onboardingNoticeShown = true;
+      void this.saveSettings();
       const notice = new Notice(
-        "第一次用 AiDiTing？① 点这条消息打开工作台（每月 30 分钟免费）② 登录后创建 Key 并复制 ③ 回来运行命令「粘贴 API Key（从剪贴板）」",
+        "第一次用 AiDiTing？点这条消息打开工作台（每月免费 30 分钟）→ 登录后创建 Key 并复制 → 回来运行命令「粘贴 API Key（从剪贴板）」",
         20000,
       );
       // 可点性走 CSS 类（styles.css 里的 .aiditing-notice-link），不直接写 inline style：
@@ -260,7 +266,12 @@ export default class AiditingPlugin extends Plugin {
 
     this.settings.apiKey = key;
     await this.saveSettings();
-    new Notice("API Key 已保存，现在可以整理音视频了。", 6000);
+    // 「已保存」听起来像结束了，用户就停在这一步。必须把下一步动作说出来：
+    // 命令面板 + 具体命令名 + 一个现成的动作（贴 B站 链接）。
+    new Notice(
+      "Key 已保存。按 Cmd/Ctrl + P 运行「从链接整理」，贴一个 B站 链接就能出稿。",
+      9000,
+    );
     return true;
   }
 

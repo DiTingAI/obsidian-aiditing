@@ -18,9 +18,19 @@
 
 /* 首次使用引导的 Notice：整条可点（点了打开工作台）。
  * 以前是 noticeEl.style.cursor = "pointer" 直接写内联样式，被社区目录的
- * no-static-styles-assignment 判为 Error，改为走这个类。 */
+ * no-static-styles-assignment 判为 Error，改为走这个类。
+ *
+ * 2026-11-18 补视觉强调。此前这里只有 cursor: pointer —— 提示框和其它几十种
+ * Notice 长得一模一样，文案写着「点这条消息」也没人去点：插件上架后下载 14 次，
+ * 工作台一条 from=obsidian 的落地都没有。可点这件事得长在脸上，不能靠文案解释。 */
 .aiditing-notice-link {
   cursor: pointer;
+  border: 1px solid var(--interactive-accent);
+  box-shadow: inset 0 0 0 1px var(--interactive-accent);
+}
+
+.aiditing-notice-link:hover {
+  background-color: var(--background-modifier-hover);
 }
 
 /* 可点的时间点：只在同一篇笔记里真的存在播放器时才会被加上这个类（见 src/seek.ts）。

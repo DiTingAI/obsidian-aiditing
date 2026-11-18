@@ -788,7 +788,8 @@ var DEFAULT_SETTINGS = {
   confirmBeforeWrite: true,
   openAfterCreate: true,
   embedSource: true,
-  noteFooter: true
+  noteFooter: true,
+  onboardingNoticeShown: false
 };
 var AiditingSettingTab = class extends import_obsidian2.PluginSettingTab {
   constructor(app, plugin) {
@@ -820,8 +821,10 @@ var AiditingSettingTab = class extends import_obsidian2.PluginSettingTab {
         control: { type: "text", key: "apiKey", placeholder: "sk-diting-..." }
       },
       {
-        name: "\u8FD8\u6CA1\u6709 Key\uFF1F\u4E24\u6B65\u641E\u5B9A",
-        desc: "\u2460 \u70B9\u300C\u53BB\u521B\u5EFA\u300D\uFF0C\u5728\u5DE5\u4F5C\u53F0\u767B\u5F55\u540E\u521B\u5EFA Key \u5E76\u590D\u5236 \u2192 \u2461 \u56DE\u6765\u70B9\u300C\u4ECE\u526A\u8D34\u677F\u8BFB\u53D6\u300D\uFF0CKey \u4F1A\u81EA\u52A8\u586B\u5230\u4E0A\u9762\u3002",
+        // 未配 Key 时这一条就是「常驻状态卡片」：首启弹窗只弹一次（见 main.ts），
+        // 用户主动翻进设置时，得有一个地方明确告诉他现在还不能用、卡在哪一步。
+        name: this.plugin.settings.apiKey ? "\u66F4\u6362 API Key" : "\u26A0 \u8FD8\u6CA1\u6709\u914D\u7F6E Key \u2014\u2014 \u73B0\u5728\u8FD8\u4E0D\u80FD\u6574\u7406",
+        desc: this.plugin.settings.apiKey ? "\u5DF2\u914D\u7F6E\u3002\u8981\u66F4\u6362\u65F6\u70B9\u300C\u53BB\u521B\u5EFA\u300D\u91CD\u65B0\u751F\u6210\u4E00\u628A\uFF0C\u518D\u70B9\u300C\u4ECE\u526A\u8D34\u677F\u8BFB\u53D6\u300D\u3002" : "\u6CA1\u6709 Key \u65F6\u63D2\u4EF6\u4E0D\u4F1A\u53D1\u51FA\u4EFB\u4F55\u8BF7\u6C42\u3002\u2460 \u70B9\u300C\u53BB\u521B\u5EFA\u300D\uFF0C\u5728\u5DE5\u4F5C\u53F0\u767B\u5F55\u540E\u521B\u5EFA Key \u5E76\u590D\u5236 \u2192 \u2461 \u56DE\u6765\u70B9\u300C\u4ECE\u526A\u8D34\u677F\u8BFB\u53D6\u300D\uFF0CKey \u4F1A\u81EA\u52A8\u586B\u5230\u4E0A\u9762\u3002\u6BCF\u6708\u514D\u8D39 30 \u5206\u949F\u3002",
         // 声明式渲染给的是一行空 Setting，正好把两个按钮挂上去；
         // 不用 action 类型：那会让整行变成可点击区域，用户点说明文字也会跳走。
         render: (setting) => {
@@ -907,8 +910,11 @@ var AiditingPlugin = class extends import_obsidian3.Plugin {
     setSeekNotifier((message, ms) => new import_obsidian3.Notice(message, ms != null ? ms : 8e3));
     this.app.workspace.onLayoutReady(() => {
       if (this.settings.apiKey) return;
+      if (this.settings.onboardingNoticeShown) return;
+      this.settings.onboardingNoticeShown = true;
+      void this.saveSettings();
       const notice = new import_obsidian3.Notice(
-        "\u7B2C\u4E00\u6B21\u7528 AiDiTing\uFF1F\u2460 \u70B9\u8FD9\u6761\u6D88\u606F\u6253\u5F00\u5DE5\u4F5C\u53F0\uFF08\u6BCF\u6708 30 \u5206\u949F\u514D\u8D39\uFF09\u2461 \u767B\u5F55\u540E\u521B\u5EFA Key \u5E76\u590D\u5236 \u2462 \u56DE\u6765\u8FD0\u884C\u547D\u4EE4\u300C\u7C98\u8D34 API Key\uFF08\u4ECE\u526A\u8D34\u677F\uFF09\u300D",
+        "\u7B2C\u4E00\u6B21\u7528 AiDiTing\uFF1F\u70B9\u8FD9\u6761\u6D88\u606F\u6253\u5F00\u5DE5\u4F5C\u53F0\uFF08\u6BCF\u6708\u514D\u8D39 30 \u5206\u949F\uFF09\u2192 \u767B\u5F55\u540E\u521B\u5EFA Key \u5E76\u590D\u5236 \u2192 \u56DE\u6765\u8FD0\u884C\u547D\u4EE4\u300C\u7C98\u8D34 API Key\uFF08\u4ECE\u526A\u8D34\u677F\uFF09\u300D",
         2e4
       );
       notice.messageEl.addClass("aiditing-notice-link");
@@ -1082,7 +1088,10 @@ ${text.slice(0, 400)}`, 2e4)
     }
     this.settings.apiKey = key;
     await this.saveSettings();
-    new import_obsidian3.Notice("API Key \u5DF2\u4FDD\u5B58\uFF0C\u73B0\u5728\u53EF\u4EE5\u6574\u7406\u97F3\u89C6\u9891\u4E86\u3002", 6e3);
+    new import_obsidian3.Notice(
+      "Key \u5DF2\u4FDD\u5B58\u3002\u6309 Cmd/Ctrl + P \u8FD0\u884C\u300C\u4ECE\u94FE\u63A5\u6574\u7406\u300D\uFF0C\u8D34\u4E00\u4E2A B\u7AD9 \u94FE\u63A5\u5C31\u80FD\u51FA\u7A3F\u3002",
+      9e3
+    );
     return true;
   }
   async loadSettings() {
