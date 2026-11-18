@@ -1,9 +1,9 @@
 {
   "id": "aiditing",
   "name": "AiDiTing",
-  "version": "0.1.19",
+  "version": "0.1.20",
   "minAppVersion": "1.13.0",
-  "description": "视频转文字. B站视频转文字. Transcribe Bilibili / Douyin links and audio files into timestamped Obsidian notes. Only creates new notes. Free 30 min/month.",
+  "description": "视频转文字. B站视频转文字. Transcribe Bilibili / Douyin links and audio files into timestamped Markdown notes. Only creates new notes. Free 30 min/month.",
   "author": "AiDiTing",
   "authorUrl": "https://aiditing.cn",
   "isDesktopOnly": true
